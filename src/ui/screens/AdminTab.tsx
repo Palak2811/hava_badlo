@@ -5,6 +5,7 @@ import { useGame } from '../../state/store';
 import { LineChart } from '../components/Charts';
 import { Icon } from '../icons';
 import { CityPulse } from '../CityPulse';
+import { OpinionPoll } from '../Campaign';
 import { costText, inr, num } from '../format';
 
 function whisper(cred: number) {
@@ -28,6 +29,7 @@ export default function AdminScreen() {
 
   return (
     <div className="screen">
+      <OpinionPoll />
       <CityPulse />
       <div className="gauges">
         <div className="gauge-tile">

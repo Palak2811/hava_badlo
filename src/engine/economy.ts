@@ -4,7 +4,7 @@
  */
 import { CAMPAIGN_WEEKS, ECONOMY, TICKS_PER_WEEK, WEEKS_PER_PHASE } from '../config/balance';
 import { RECOVERY, REVENUE } from '../config/economy';
-import { addEffect, addNews, applyDeltas, phaseOf, weekOf, type ActionResult } from './core';
+import { actualAqi, addEffect, addNews, applyDeltas, phaseOf, weekOf, type ActionResult } from './core';
 import type { GameState, Modifier } from './types';
 
 export interface RevenueLine { id: string; label: string; amount: number; note?: string }
@@ -46,6 +46,25 @@ export function financeModifier(s: GameState): Modifier {
   return {
     incomePerWeek: revenueStreams(s).reduce((t, l) => t + l.amount, 0),
     upkeepPerWeek: s.finance.loans.reduce((t, l) => t + l.perWeek, 0),
+  };
+}
+
+/** Weekly settlement: book the week's income and spending to the treasury and record a report. */
+export function settleWeek(s: GameState, week: number) {
+  const income = Math.round(s.ledger.income);
+  const expenses = Math.round(s.ledger.expenses);
+  const net = income - expenses;
+  s.res.budget = Math.max(ECONOMY.debtFloor, s.res.budget + net);
+  s.ledger = { income: 0, expenses: 0 };
+  const snap = s.weekSnap;
+  const highlights = s.news.filter((n) => n.id > snap.newsSeq && (n.kind === 'gov' || n.kind === 'investigation' || n.kind === 'achievement')).slice(0, 3).map((n) => n.headline);
+  s.settlement = {
+    week, income, expenses, net, budget: Math.round(s.res.budget),
+    aqi: [snap.aqi, actualAqi(s)], trust: [Math.round(snap.trust), Math.round(s.res.trust)], population: [Math.round(snap.population), Math.round(s.city.population)],
+    objectives: s.objectives.filter((o) => o.done).length, objectivesTotal: s.objectives.length,
+    projects: s.stats.projectsCompleted + s.stats.buildingsBought + s.stats.upgradesBought - snap.projects,
+    decisions: s.stats.eventsHandled + s.stats.proposalsDecided - snap.decisions,
+    highlights,
   };
 }
 

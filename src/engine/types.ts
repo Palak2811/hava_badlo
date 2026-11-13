@@ -1,3 +1,5 @@
+import type { ElectionResult } from './election';
+
 export type Source = 'transport' | 'dust' | 'industry' | 'agriculture' | 'waste' | 'other';
 export const SOURCES: Source[] = ['transport', 'dust', 'industry', 'agriculture', 'waste', 'other'];
 
@@ -114,6 +116,8 @@ export interface Sample {
 }
 
 export interface DailyObjective {
+  /** e.g. the neighbourhood an objective is about */
+  param?: string;
   id: string;
   templateId: string;
   label: string;
@@ -150,6 +154,8 @@ export interface GameStats {
   objectivesDone: number;
   projectsCompleted: number;
   demolitions: number;
+  proposalsDecided: number;
+  industryDecisions: number;
 }
 
 export interface Settings {
@@ -158,6 +164,7 @@ export interface Settings {
   musicVolume: number;
   sfxVolume: number;
   animations: boolean;
+  pauseOnWeekEnd: boolean;
 }
 
 export interface GameState {
@@ -222,6 +229,14 @@ export interface GameState {
   policies: PolicyInstance[];
   delayed: Delayed[];
   finance: Finance;
+  /** income and spending accumulated during the current week; settled at week end */
+  ledger: { income: number; expenses: number };
+  /** the last weekly settlement */
+  settlement: Settlement | null;
+  /** state at the start of the current week (for the settlement report) */
+  weekSnap: WeekSnap;
+  /** set when the term ends */
+  election: ElectionResult | null;
   phaseReports: PhaseReport[];
   reportPending: boolean;
   briefingSeen: number;
@@ -341,6 +356,24 @@ export interface Delayed {
   policy?: PolicyInstance;
   endPolicy?: string;
   news: string;
+}
+
+export interface WeekSnap { aqi: number; trust: number; population: number; newsSeq: number; objectivesDone: number; projects: number; decisions: number }
+
+export interface Settlement {
+  week: number;
+  income: number;
+  expenses: number;
+  net: number;
+  budget: number;
+  aqi: [number, number];
+  trust: [number, number];
+  population: [number, number];
+  objectives: number;
+  objectivesTotal: number;
+  projects: number;
+  decisions: number;
+  highlights: string[];
 }
 
 export interface Loan { principal: number; perWeek: number; weeksLeft: number }

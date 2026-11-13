@@ -250,6 +250,7 @@ export function SettingsModal() {
       <label className="setting"><span>Effects volume</span><input type="range" min={0} max={1} step={0.05} value={st.sfxVolume} onChange={(e) => upd({ sfxVolume: +e.target.value })} /></label>
       <label className="setting"><span>Music</span><input type="checkbox" checked={st.music} onChange={(e) => upd({ music: e.target.checked })} /></label>
       <label className="setting"><span>Music volume</span><input type="range" min={0} max={1} step={0.05} value={st.musicVolume} onChange={(e) => upd({ musicVolume: +e.target.value })} /></label>
+      <label className="setting"><span>Pause when a week settles</span><input type="checkbox" checked={st.pauseOnWeekEnd} onChange={(e) => upd({ pauseOnWeekEnd: e.target.checked })} /></label>
       <label className="setting"><span>Animations</span><input type="checkbox" checked={st.animations} onChange={(e) => upd({ animations: e.target.checked })} /></label>
       <div className="row-btns">
         <button className="btn ghost" onClick={() => { close(); useGame.getState().replayTutorial(); }}>Replay tutorial</button>

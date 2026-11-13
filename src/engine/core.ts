@@ -15,13 +15,15 @@ import {
   STAGE2_GRANT, START, START_PARTICIPATION, TICKS_PER_WEEK, TRUST, VICTORY, type SeasonDef,
 } from '../config/balance';
 import { EVENTS, EVENT_MAP, type EventCtx } from '../config/events';
-import { ACHIEVEMENTS, NEWS_TEMPLATES, OBJECTIVE_TEMPLATES, STAGE_OBJECTIVES } from '../config/content';
+import { ACHIEVEMENTS, NEWS_TEMPLATES, STAGE_OBJECTIVES } from '../config/content';
 import { nextRandom } from './rng';
 import { BASE_STATS } from './map';
 import { advanceConstruction, mapModifier } from './build';
 import { cityWeek, initialCity } from './city';
 import { BASE_AIR, BASE_DISTRICTS, districtFactors, exposureAqi, sharesOf } from './air';
-import { financeModifier, weeklyFinance } from './economy';
+import { financeModifier, settleWeek, weeklyFinance } from './economy';
+import { evaluateObjectives, rollWeeklyObjectives } from './objectives';
+import { computeElection } from './election';
 import { advanceApprovals, policyModifiers, rollProposals } from './approvals';
 import { FACILITY_WEEKS } from '../config/build';
 import { SOURCES, type PhaseSnap, type BuildingId, type Cost, type Deltas, type EndingId, type GameState, type Modifier, type NewsKind, type Source } from './types';
@@ -63,7 +65,7 @@ export function newGame(seed = Date.now() % 2147483647, now = Date.now()): GameS
     achievements: [],
     stats: {
       highestAqi: 0, lowestAqi: 999, totalSpent: 0, eventsHandled: 0, opticsUsed: 0, committees: 0, reports: 0,
-      purifiers: 0, toughDecisions: 0, exposures: 0, buildingsBought: 0, upgradesBought: 0, cacEarned: 0, aqiReductionWeeks: 0, objectivesDone: 0, projectsCompleted: 0, demolitions: 0,
+      purifiers: 0, toughDecisions: 0, exposures: 0, buildingsBought: 0, upgradesBought: 0, cacEarned: 0, aqiReductionWeeks: 0, objectivesDone: 0, projectsCompleted: 0, demolitions: 0, proposalsDecided: 0, industryDecisions: 0,
     },
     ended: null,
     sandbox: false,
@@ -90,12 +92,17 @@ export function newGame(seed = Date.now() % 2147483647, now = Date.now()): GameS
     policies: [],
     delayed: [],
     finance: { loans: [], grantPhase: 0, investmentPhase: 0, cutsUntil: 0, devFeesWeek: 0, devFeesLastWeek: 0 },
+    ledger: { income: 0, expenses: 0 },
+    settlement: null,
+    weekSnap: { aqi: 0, trust: 0, population: 0, newsSeq: 0, objectivesDone: 0, projects: 0, decisions: 0 },
+    election: null,
   };
   // settle the atmosphere to day-1 steady state
   const target = steadyConc(s, false);
   s.conc = target;
   s.baselineConc = steadyConc(s, true);
   s.phaseStart = phaseSnap(s);
+  s.weekSnap = takeWeekSnap(s);
   rollWeeklyObjectives(s);
   addNews(s, 'gov', 'New Commissioner Appointed to Department of Clean Air; Department Consists of One Desk', 'Your office has a chair, a kettle and a view of the smog. Let us begin.');
   sample(s);
@@ -567,6 +574,7 @@ export function resolveEvent(s: GameState, uid: string, choiceIdx: number, auto 
     addEffect(s, `ev_${def.id}`, ch.temp.label, ch.temp.days, mod, ch.temp.kind ?? 'good');
   }
   if (ch.tough) s.stats.toughDecisions += 1;
+  if (def.category === 'Industry' && !auto) s.stats.industryDecisions += 1;
   s.events = s.events.filter((e) => e.uid !== uid);
   s.eventHistory.push({ defId: def.id, choice: choiceIdx, week: weekOf(s) });
   if (!auto) s.stats.eventsHandled += 1;
@@ -576,40 +584,6 @@ export function resolveEvent(s: GameState, uid: string, choiceIdx: number, auto 
 }
 
 /* -------------------------------------------------------------- objectives & progress */
-
-export function rollWeeklyObjectives(s: GameState) {
-  const day = weekOf(s);
-  const pool = [...OBJECTIVE_TEMPLATES];
-  const chosen = [];
-  // always one AQI objective after day 2, plus two random others
-  const aqiT = pool.find((t) => t.id === 'aqi')!;
-  const rest = pool.filter((t) => t.id !== 'aqi');
-  for (let i = 0; i < 2 && rest.length; i++) {
-    const idx = Math.floor(nextRandom(s) * rest.length);
-    chosen.push(rest.splice(idx, 1)[0]);
-  }
-  if (day >= 2) chosen.push(aqiT);
-  s.objectives = chosen.map((t) => {
-    const target = t.target(day);
-    return { id: `${t.id}_${day}`, templateId: t.id, label: t.label(target), target, start: t.metric(s), reward: t.reward(day), done: false };
-  });
-}
-
-function evaluateObjectives(s: GameState, weekEnd: boolean) {
-  for (const o of s.objectives) {
-    if (o.done) continue;
-    const t = OBJECTIVE_TEMPLATES.find((x) => x.id === o.templateId);
-    if (!t) continue;
-    let done = false;
-    if (t.belowAtWeekEnd) done = weekEnd && actualAqi(s) <= o.target;
-    else done = t.metric(s) - o.start >= o.target;
-    if (done) {
-      o.done = true;
-      s.stats.objectivesDone += 1;
-      applyDeltas(s, o.reward);
-    }
-  }
-}
 
 export function checkProgress(s: GameState) {
   const red = reductionPct(s);
@@ -719,8 +693,9 @@ export function step(s: GameState, opts: { offline?: boolean } = {}) {
   const offF = 1;
 
   // economy
-  const net = incomePerWeek(s, a) - maintenancePerWeek(s, a);
-  s.res.budget = Math.max(ECONOMY.debtFloor, s.res.budget + net * perTick * offF);
+  // money accrues in the weekly ledger and is settled when the week ends
+  s.ledger.income += incomePerWeek(s, a) * perTick * offF;
+  s.ledger.expenses += maintenancePerWeek(s, a) * perTick * offF;
   s.res.rp += researchPerWeek(s, a) * perTick * offF;
   s.res.capital += capitalPerWeek(s, a) * perTick * offF;
 
@@ -805,6 +780,7 @@ export function step(s: GameState, opts: { offline?: boolean } = {}) {
 
 function endOfWeek(s: GameState, offline: boolean) {
   const prevWeek = weekOf(s) - 1;
+  settleWeek(s, prevWeek);
   evaluateObjectives(s, true);
   cityWeek(s);
   weeklyFinance(s);
@@ -814,6 +790,7 @@ function endOfWeek(s: GameState, offline: boolean) {
 
   if (prevWeek >= CAMPAIGN_WEEKS && !s.ended && !s.sandbox) {
     s.ended = evaluateEnding(endingInput(s));
+    s.election = computeElection(s);
     addNews(s, 'breaking', 'Commissioner’s Term Ends; Final Report Submitted (Only 3 Pages)');
     return;
   }
@@ -849,6 +826,11 @@ function endOfWeek(s: GameState, offline: boolean) {
   rollWeeklyObjectives(s);
   if (!offline) rollEvents(s);
   checkProgress(s);
+  s.weekSnap = takeWeekSnap(s);
+}
+
+export function takeWeekSnap(s: GameState) {
+  return { aqi: actualAqi(s), trust: s.res.trust, population: s.city.population, newsSeq: s.newsSeq, objectivesDone: s.stats.objectivesDone, projects: s.stats.projectsCompleted + s.stats.buildingsBought + s.stats.upgradesBought, decisions: s.stats.eventsHandled + s.stats.proposalsDecided };
 }
 
 /* -------------------------------------------------------------- weeks */

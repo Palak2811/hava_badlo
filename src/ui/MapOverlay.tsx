@@ -12,6 +12,7 @@ import { districtRevenue } from '../engine/economy';
 import { aqiBand } from '../engine/core';
 import { facilityWeeks } from '../engine/core';
 import { congestionLabel } from '../engine/city';
+import { objectiveProgress } from '../engine/objectives';
 import { cityControls } from '../city/controls';
 import { useGame } from '../state/store';
 import { SOURCE_META } from './components/Charts';
@@ -309,19 +310,23 @@ export function ZoomControls() {
 }
 
 export function ObjectivesWidget() {
-  const objectives = useGame((s) => s.game.objectives);
+  const g = useGame((s) => s.game);
+  const objectives = g.objectives;
   if (!objectives.length) return null;
   const done = objectives.filter((o) => o.done).length;
   return (
     <aside className="objectives-widget" aria-label="This week's objectives">
       <header><Icon name="check" size={14} /> This week <em>{done}/{objectives.length}</em></header>
       <ul>
-        {objectives.map((o) => (
-          <li key={o.id} className={o.done ? 'done' : ''}>
-            <span className="tick">{o.done ? <Icon name="check" size={12} stroke={3} /> : null}</span>
-            {o.label}
-          </li>
-        ))}
+        {objectives.map((o) => {
+          const prog = o.done ? null : objectiveProgress(g, o);
+          return (
+            <li key={o.id} className={o.done ? 'done' : ''}>
+              <span className="tick">{o.done ? <Icon name="check" size={12} stroke={3} /> : null}</span>
+              <span>{o.label}{prog && <small className="obj-prog">{prog}</small>}</span>
+            </li>
+          );
+        })}
       </ul>
     </aside>
   );

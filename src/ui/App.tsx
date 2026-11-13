@@ -9,12 +9,13 @@ import FinanceScreen from './screens/FinanceTab';
 import { Intro } from './Intro';
 import { BuildPalette, ToolPanel } from './BuildPalette';
 import { CityPulse } from './CityPulse';
+import { ElectionNight, WeekCard } from './Campaign';
 import { Tutorial } from './Tutorial';
 import { Icon, type IconName } from './icons';
 import ResearchScreen from './screens/ResearchTab';
 import NewsScreen from './screens/NewsTab';
 import AdminScreen from './screens/AdminTab';
-import { BriefingModal, ConfirmModal, DecisionModal, EndingModal, OfflineModal, ReportModal, SettingsModal } from './components/Modals';
+import { BriefingModal, ConfirmModal, DecisionModal, OfflineModal, ReportModal, SettingsModal } from './components/Modals';
 import { Confetti, Toasts } from './components/Feedback';
 
 const CityView = lazy(() => import('../city/CityView'));
@@ -50,10 +51,7 @@ function useGameLoop() {
       const n = Math.floor(acc.current);
       if (n > 0) {
         acc.current -= n;
-        const before = st.game.res.budget;
         st.tickReal(n);
-        const gained = useGame.getState().game.res.budget - before;
-        if (st.settings.animations && gained > 0 && Math.random() < 0.25) st.float(`+₹${Math.round(gained)}`, 'var(--good)');
       }
     }, 250);
     const save = window.setInterval(() => useGame.getState().persist(), 5000);
@@ -184,7 +182,8 @@ export default function App() {
       <SettingsModal />
       <OfflineModal />
       <ReportModal />
-      <EndingModal />
+      <ElectionNight />
+      <WeekCard />
       <BriefingModal />
       <Tutorial />
       <Intro />

@@ -9,7 +9,7 @@ A satirical idle / city-management game set in Delhi. **52 weeks. One city. One 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 112 unit tests (Vitest)
+npm test           # 123 unit tests (Vitest)
 npm run lint
 npm run typecheck
 npm run build      # production build into dist/
@@ -28,6 +28,7 @@ src/
     city.ts       ← living-city balance: occupancy, trips, transit capacity, road capacity, growth caps
     economy.ts    ← revenue rates and recovery terms
     approvals.ts  ← the ten proposal templates with their impacts
+    election.ts   ← seats, majority and scorecard weights
     build.ts      ← build catalogue: costs, build weeks, zones, upkeep, demolition compensation
     content.ts    ← achievements, objectives, stage goals, endings, news templates, tutorial
   engine/         ← pure TypeScript simulation; no DOM and no rendering, deterministic per seed
@@ -36,6 +37,8 @@ src/
     air.ts        ← neighbourhood air: source distribution, spill-over, park relief, exposure-weighted city AQI
     economy.ts    ← revenue streams, loans, recovery options
     approvals.ts  ← proposals, standing policies, delayed consequences
+    objectives.ts ← weekly objectives (air / city / action) and live progress
+    election.ts   ← seat allocation, per-neighbourhood scorecard, result & verdict
     city.ts       ← weekly living city: migration, employment, RCI demand, private development, traffic model
     core.ts       ← modifiers, pollution model, economy, actions, events, progression, endings, tick
     save.ts       ← versioned localStorage save, validation/migration, corrupt-save recovery, offline progress
@@ -62,7 +65,7 @@ tests/engine.test.ts
 - [x] Phase 2: placement & demolition, relocation, road building, zoning, construction timers
 - [x] Phase 3: residents & migration, jobs & unemployment, RCI demand, organic growth, traffic & public transport model
 - [x] Phase 4: neighbourhood AQI (population-weighted exposure), pollution & economy map modes, revenue streams, finance & recovery, pending approvals, policies, delayed consequences
-- [ ] Phase 5: weekly settlement, objectives & election evaluation
+- [x] Phase 5: weekly settlement ledger & card, objectives tied to air/trust/revenue/transit/traffic/approvals, opinion poll, 70-seat election with constituency results and legacy title
 - [ ] Phase 6: polish & balancing
 
 ## Notes and limitations

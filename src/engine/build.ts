@@ -244,7 +244,7 @@ export function advanceConstruction(s: GameState) {
     changed = true;
     s.stats.projectsCompleted += 1;
     const d = districtAt(CITY, p.x, p.y);
-    addNews(s, 'gov', `${PLACEABLE_MAP[p.kind].name} Opens in ${d?.name ?? 'Delhi'}`, 'Ribbon cut, photographs taken, samosas distributed.');
+    addNews(s, 'gov', `Construction Complete: ${PLACEABLE_MAP[p.kind].name} in ${d?.name ?? 'Delhi'}`, 'Ribbon cut, photographs taken, samosas distributed.');
   }
   for (const r of s.cityEdits.roads) {
     if (r.built || r.done > s.tick) continue;

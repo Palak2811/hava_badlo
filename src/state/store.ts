@@ -34,7 +34,7 @@ export function getLiveMap(g: GameState): CityMap {
 }
 export interface Toast { id: number; kind: 'good' | 'bad' | 'info' | 'achievement'; title: string; body?: string }
 
-const DEFAULT_SETTINGS: Settings = { sound: true, music: false, musicVolume: 0.4, sfxVolume: 0.6, animations: true };
+const DEFAULT_SETTINGS: Settings = { sound: true, music: false, musicVolume: 0.4, sfxVolume: 0.6, animations: true, pauseOnWeekEnd: false };
 
 function loadSettings(): Settings {
   try {
@@ -62,6 +62,8 @@ interface Store {
   showSettings: boolean;
   confirm: { title: string; body: string; onYes: () => void } | null;
   floaters: { id: number; text: string; color: string }[];
+  weekCard: number | null;
+  closeWeekCard: () => void;
   boot: () => void;
   setTab: (t: Tab) => void;
   select: (b: BuildingId | null) => void;
@@ -155,6 +157,8 @@ export const useGame = create<Store>((set, get) => {
     showSettings: false,
     confirm: null,
     floaters: [],
+    weekCard: null,
+    closeWeekCard: () => set({ weekCard: null }),
 
     boot: () => {
       const st = storage();
@@ -284,10 +288,17 @@ export const useGame = create<Store>((set, get) => {
     tickReal: (n) => {
       if (n <= 0) return;
       const s = structuredClone(get().game);
-      const before = { ach: s.achievements.length, events: s.events.length, budget: s.res.budget, ended: s.ended, prop: s.proposalsSeen };
+      const before = { ach: s.achievements.length, events: s.events.length, budget: s.res.budget, ended: s.ended, prop: s.proposalsSeen, settled: s.settlement?.week ?? 0 };
       for (let i = 0; i < n; i++) step(s);
       set({ game: s });
       announce(before, s);
+      if (s.settlement && s.settlement.week !== before.settled) {
+        const net = s.settlement.net;
+        get().float(`${net >= 0 ? '+' : '−'}₹${Math.abs(net).toLocaleString('en-IN')}`, net >= 0 ? 'var(--good)' : 'var(--bad)');
+        sound.play(net >= 0 ? 'buy' : 'error');
+        set({ weekCard: s.settlement.week });
+        if (get().settings.pauseOnWeekEnd && !s.ended) set({ game: { ...get().game, speed: 0 } });
+      }
       if (s.proposalsSeen > before.prop) {
         const p = s.proposals[s.proposals.length - 1];
         if (p) {

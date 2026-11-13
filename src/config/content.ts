@@ -22,25 +22,6 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'clean_air', name: 'Clean Air Champion', icon: '🏅', description: 'Bring actual AQI below 100.', reward: { budget: 10000 }, rewardText: '+₹10,000' },
 ];
 
-export interface ObjectiveTemplate {
-  id: string;
-  label: (t: number) => string;
-  /** counter value read from state; objective is done when value - start >= target */
-  metric: (s: GameState) => number;
-  target: (day: number) => number;
-  reward: (day: number) => Deltas;
-  /** if true, evaluate as absolute threshold (value <= target), only at end of day */
-  belowAtWeekEnd?: boolean;
-}
-
-export const OBJECTIVE_TEMPLATES: ObjectiveTemplate[] = [
-  { id: 'build', label: (t) => `Complete ${t} construction project${t > 1 ? 's' : ''}`, metric: (s) => s.stats.buildingsBought + s.stats.upgradesBought + s.stats.projectsCompleted, target: (d) => (d < 14 ? 1 : 2), reward: (d) => ({ budget: 800 + d * 40 }) },
-  { id: 'research', label: () => 'Complete a research project', metric: (s) => s.research.length, target: () => 1, reward: () => ({ rp: 20 }) },
-  { id: 'events', label: (t) => `Handle ${t} event${t > 1 ? 's' : ''}`, metric: (s) => s.stats.eventsHandled, target: (d) => (d < 20 ? 1 : 2), reward: (d) => ({ capital: 2 + Math.floor(d / 15) }) },
-  { id: 'cac', label: (t) => `Earn ${t} Clean Air Credits`, metric: (s) => s.stats.cacEarned, target: (d) => Math.max(2, Math.round(d / 5)), reward: () => ({ trust: 2, budget: 600 }) },
-  { id: 'aqi', label: (t) => `End the week with actual AQI ≤ ${t}`, metric: () => 0, target: (d) => (d < 14 ? 240 : d < 27 ? 330 : d < 40 ? 380 : 260), reward: () => ({ budget: 1500, trust: 2 }), belowAtWeekEnd: true },
-];
-
 export interface StageObjective {
   id: string;
   stage: number;

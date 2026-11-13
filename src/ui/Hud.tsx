@@ -33,7 +33,7 @@ export function Hud() {
       <div className="hud-brand">Hawa <b>Badlo</b></div>
 
       <div className="hud-stats">
-        <button className="stat stat-money" onClick={() => useGame.getState().setTab('finance')} title={`Income ${inr(r.income)}/week − spending ${inr(r.maintenance)}/week · click for finances`}>
+        <button className="stat stat-money" onClick={() => useGame.getState().setTab('finance')} title={`Settles every week: income ${inr(r.income)} − spending ${inr(r.maintenance)} · this week so far ${inr(g.ledger.income - g.ledger.expenses)} · click for finances`}>
           <span className="stat-icon money"><Icon name="wallet" /></span>
           <span className="stat-text">
             <small>Treasury</small>

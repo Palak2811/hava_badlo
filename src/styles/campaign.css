@@ -1,0 +1,76 @@
+/* =====================================================================
+   Weekly settlement card, opinion poll, election night
+   ===================================================================== */
+.week-card { position: absolute; right: var(--edge); top: calc(var(--edge) + 72px); width: 300px; background: var(--surface); border-radius: var(--r-xl); box-shadow: var(--shadow-3); padding: var(--s4); z-index: 13; animation: slideL var(--t-med) var(--ease); border-top: 5px solid var(--navy); }
+.week-card header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: var(--s2); }
+.week-card header small { display: block; font-size: var(--fs-xs); font-weight: 700; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.06em; }
+.week-card header b { font-size: var(--fs-lg); }
+.wc-money { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--line); border-radius: var(--r-md); overflow: hidden; }
+.wc-money div { background: var(--paper); padding: 8px 10px; }
+.wc-money small { display: block; font-size: var(--fs-xs); color: var(--ink-3); }
+.wc-money b { font-size: var(--fs-md); }
+.wc-deltas { list-style: none; padding: 0; margin: var(--s3) 0 0; display: grid; gap: 4px; font-size: var(--fs-sm); }
+.wc-deltas li { display: grid; grid-template-columns: 1fr auto 70px; gap: 8px; align-items: baseline; }
+.wc-deltas span { color: var(--ink-3); font-size: var(--fs-xs); font-weight: 600; }
+.wc-deltas em { font-style: normal; font-size: var(--fs-xs); font-weight: 700; text-align: right; color: var(--ink-3); }
+.wc-deltas em.pos { color: var(--good); }
+.wc-deltas em.neg { color: var(--bad); }
+.wc-news { margin-top: var(--s3); font-size: var(--fs-xs); color: var(--ink-2); font-family: Georgia, serif; }
+
+.obj-prog { display: block; font-size: 11px; color: var(--sky); font-weight: 600; text-decoration: none; }
+
+.seatbar { position: relative; display: grid; grid-template-columns: repeat(35, 1fr); gap: 2px; margin: var(--s3) 0; }
+.seatbar i { aspect-ratio: 1; border-radius: 50%; background: var(--line); }
+.seatbar i.won { background: var(--good); }
+.seatbar .majority { position: absolute; top: -4px; bottom: -4px; width: 2px; background: var(--navy); }
+.scorecard { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
+.scorecard li { display: grid; grid-template-columns: 170px 1fr 32px; gap: 10px; align-items: center; font-size: var(--fs-sm); }
+.scorecard small { display: block; font-size: 10px; color: var(--ink-3); }
+.scorecard b { text-align: right; }
+
+.poll { background: var(--surface); border-radius: var(--r-lg); padding: var(--s4); box-shadow: var(--shadow-1); }
+.poll-top { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--s2); }
+.poll-top small { display: block; font-size: var(--fs-xs); color: var(--ink-3); font-weight: 600; }
+.poll-top b { font-size: var(--fs-xl); font-weight: 800; }
+.poll-top b span { font-size: var(--fs-sm); color: var(--ink-3); }
+
+.modal.election { width: min(900px, 100%); padding: 0; overflow: auto; }
+.el-hero { background: linear-gradient(160deg, var(--navy), #2a3b6e); color: #fff; padding: var(--s6) var(--s6) var(--s4); text-align: center; border-radius: var(--r-xl) var(--r-xl) 0 0; }
+.election.won .el-hero { background: linear-gradient(160deg, #1f7a46, #2f9e5b); }
+.election.lost .el-hero { background: linear-gradient(160deg, #3b1f2b, #7a2e3a); }
+.el-hero small { text-transform: uppercase; letter-spacing: 0.12em; font-weight: 700; font-size: var(--fs-xs); opacity: 0.8; }
+.el-hero h1 { font-size: 46px; letter-spacing: -0.03em; margin: 4px 0; }
+.el-headline { font-family: Georgia, serif; font-size: var(--fs-lg); opacity: 0.92; }
+.el-numbers { display: flex; justify-content: center; gap: var(--s6); margin: var(--s4) 0 0; }
+.el-numbers b { display: block; font-size: var(--fs-2xl); font-weight: 800; }
+.el-numbers small { opacity: 0.8; letter-spacing: 0; text-transform: none; font-weight: 500; }
+.el-hero .seatbar i { background: rgba(255, 255, 255, 0.25); }
+.el-hero .seatbar i.won { background: #fff; }
+.el-hero .seatbar .majority { background: #f2c14e; }
+.el-body { display: grid; grid-template-columns: 1fr 1.2fr; gap: var(--s5); padding: var(--s5) var(--s6); }
+.el-body h4 { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); margin-bottom: var(--s2); }
+.el-districts { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; background: var(--line); border-radius: var(--r-md); overflow: hidden; }
+.el-districts li { display: grid; grid-template-columns: 1fr auto 46px; gap: 10px; align-items: center; background: var(--surface); padding: 7px 10px; font-size: var(--fs-sm); }
+.el-districts li small { display: block; font-size: 11px; font-weight: 700; }
+.el-districts li em { font-style: normal; font-weight: 800; text-align: right; }
+.el-districts li.won em { color: var(--good); }
+.el-districts li.lost em { color: var(--ink-3); }
+.legacy { --c: var(--good); display: flex; gap: var(--s4); align-items: center; margin: 0 var(--s6); padding: var(--s4); border-radius: var(--r-lg); background: color-mix(in srgb, var(--c) 12%, white); }
+.legacy .ending-art { font-size: 40px; margin: 0; }
+.legacy small { display: block; font-size: var(--fs-xs); font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-3); }
+.legacy b { font-size: var(--fs-lg); }
+.legacy p { font-size: var(--fs-sm); color: var(--ink-2); }
+.legacy em { font-style: normal; font-size: var(--fs-xs); font-weight: 600; color: #8a5a12; display: flex; gap: 4px; align-items: center; margin-top: 4px; }
+.election .row-btns { padding: 0 var(--s6) var(--s5); }
+
+@media (max-width: 860px) {
+  .week-card { left: 8px; right: 8px; width: auto; top: calc(var(--edge) + 112px); }
+  .el-body { grid-template-columns: 1fr; padding: var(--s4); }
+  .legacy { margin: 0 var(--s4); }
+  .election .row-btns { padding: 0 var(--s4) var(--s4); }
+  .el-hero { padding: var(--s5) var(--s4) var(--s3); }
+  .scorecard li { grid-template-columns: 120px 1fr 28px; }
+}
+
+/* nothing should cover the results */
+.game:has(.modal.election) .toasts { display: none; }

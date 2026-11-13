@@ -99,6 +99,8 @@ export function decideProposal(s: GameState, uid: number, approve: boolean): Act
     return { ok: false, msg: 'The site has been taken; the proposal lapses' };
   }
   s.proposals = s.proposals.filter((x) => x.uid !== uid);
+  s.stats.proposalsDecided += 1;
+  if (t.category === 'Industry' || t.id === 'fines') s.stats.industryDecisions += 1;
   applyOutcome(s, o, p);
   return { ok: true, msg: `${approve ? 'Approved' : 'Rejected'}: ${t.title}` };
 }

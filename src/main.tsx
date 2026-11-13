@@ -6,6 +6,7 @@ import './styles/phase1.css';
 import './styles/build.css';
 import './styles/city.css';
 import './styles/economy.css';
+import './styles/campaign.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
