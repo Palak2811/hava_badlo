@@ -7,7 +7,7 @@
  * parks give local relief. City AQI = population-weighted exposure, so WHERE pollution happens matters.
  */
 import { POLLUTION, SEASONS } from '../config/balance';
-import { CITY, COLS, DISTRICTS, KIND_INFO, ROWS, idx, type CityMap } from './map';
+import { CITY, COLS, DISTRICTS, LANDMARKS, ROWS, idx, infoOf, type CityMap } from './map';
 import { concToAqi } from './core';
 import { SOURCES, type AirState, type DistrictStats, type GameState, type Source } from './types';
 
@@ -55,12 +55,13 @@ export function districtBreakdown(m: CityMap): Record<string, DistrictStats> {
     const s = out[b.district] ?? out[DISTRICTS[districtIndex[idx(b.x, b.y)]]?.id];
     if (!s) continue;
     if (b.progress) { s.sites++; continue; }
-    const k = KIND_INFO[b.kind];
+    const k = infoOf(b);
     const area = b.w * b.h;
     const scale = b.kind === 'house' || b.kind === 'shop' ? area : 1;
     s.capacity += k.residents * scale;
     s.jobs += k.jobs * scale;
     if (b.kind === 'shop' || b.kind === 'market') s.retailJobs += k.jobs * scale;
+    if (b.landmark) s.retailJobs += LANDMARKS[b.landmark].retailJobs ?? 0;
     if (b.kind === 'office') s.officeJobs += k.jobs;
     if (b.kind === 'factory') s.industryLoad += area * (b.modern ? 0.5 : 1);
     if (b.kind === 'warehouse') s.industryLoad += area * 0.3;

@@ -2,7 +2,7 @@ import { BUILDING_MAP, RESEARCH_MAP } from '../config/balance';
 import { EVENT_MAP } from '../config/events';
 import { ROAD_NAMES } from '../config/content';
 import { agg, buildingUnlocked, canAfford, nextLevelInfo } from '../engine/core';
-import { H_ARTERIALS, KIND_INFO, V_ARTERIALS, areaStats, districtAt, tileAt, type Kind } from '../engine/map';
+import { H_ARTERIALS, V_ARTERIALS, areaStats, infoOf, districtAt, tileAt, type Kind } from '../engine/map';
 import { demolitionInfo } from '../engine/build';
 import { PLACEABLE_MAP } from '../config/build';
 import { TICKS_PER_WEEK } from '../config/balance';
@@ -144,7 +144,7 @@ export function InspectPanel() {
   if (pick.type === 'building') {
     const b = CITY.buildings[pick.id];
     if (!b || b.removed) return null;
-    const info = KIND_INFO[b.kind];
+    const info = infoOf(b);
     const d = CITY.districts.find((x) => x.id === b.district)!;
     const placed = b.placedUid !== undefined ? g.cityEdits.placed.find((p) => p.uid === b.placedUid) : undefined;
     const pdef = placed ? PLACEABLE_MAP[placed.kind] : undefined;

@@ -23,6 +23,7 @@ describe('city map', () => {
   it('every building is on the map, owns its tiles, and nothing overlaps', () => {
     const seen = new Set<number>();
     for (const b of CITY.buildings) {
+      if (b.removed) continue; // cleared to make room for a landmark
       expect(b.x + b.w).toBeLessThanOrEqual(COLS);
       expect(b.y + b.h).toBeLessThanOrEqual(ROWS);
       for (let y = b.y; y < b.y + b.h; y++) for (let x = b.x; x < b.x + b.w; x++) {
@@ -35,7 +36,7 @@ describe('city map', () => {
 
   it('every building (except lawns and the memorial) has road access', () => {
     for (const b of CITY.buildings) {
-      if (b.kind === 'park' || b.kind === 'monument') continue;
+      if (b.removed || b.kind === 'park' || b.kind === 'monument') continue;
       expect(roadAccess(CITY, b.x, b.y, b.w, b.h)).toBe(true);
     }
   });

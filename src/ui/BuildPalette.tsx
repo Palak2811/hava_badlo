@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { CATEGORIES, PLACEABLES, PLACEABLE_MAP, ROAD, ZONE_INFO, ZONING, type Category } from '../config/build';
 import { checkPlacement, checkRoad, demolitionInfo, placeableUnlocked, zoneTiles } from '../engine/build';
-import { KIND_INFO, buildingAt, zoneAt } from '../engine/map';
+import { buildingAt, infoOf, zoneAt } from '../engine/map';
 import type { Zone } from '../engine/types';
 import { getLiveMap, useGame, type Tool } from '../state/store';
 import { Icon } from './icons';
@@ -135,7 +135,7 @@ export function ToolPanel() {
     const info = b ? demolitionInfo(g, m, b.id) : null;
     body = b && info ? (
       <>
-        <div className="tp-facts"><b>{KIND_INFO[b.kind].label}</b>{info.allowed && <span>{info.cancel ? `Refund ${inr(info.refund)}` : `Compensation ${inr(info.cost)}`}</span>}</div>
+        <div className="tp-facts"><b>{infoOf(b).label}</b>{info.allowed && <span>{info.cancel ? `Refund ${inr(info.refund)}` : `Compensation ${inr(info.cost)}`}</span>}</div>
         <p className={info.allowed ? 'tp-impact' : 'tp-reason'}>{info.allowed ? info.note : info.reason}</p>
       </>
     ) : <p className="tp-impact">Demolition frees land, but people lose homes, jobs or parks.</p>;

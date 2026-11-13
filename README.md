@@ -2,7 +2,36 @@
 
 *A nation-sized problem. A government-sized budget.*
 
-A satirical idle / city-management game set in Delhi. **52 weeks. One city. One election.** You are Commissioner of Delhi's Clean Air Mission: improve the air, grow the city, keep the economy and the voters happy, and win the election in week 52. You can do it for real with infrastructure, research and hard choices, or you can make it *look* done.
+## What this is
+
+Hawa Badlo ("change the air") is a **single-player browser game**: a satirical idle / city-management sim about cleaning up Delhi's air pollution. It runs entirely in the browser, with no backend, no account and no install. Progress is saved to the browser's local storage.
+
+**52 weeks. One city. One election.** You play the Commissioner of Delhi's Clean Air Mission. You have one 52-week term to improve the air, grow the city, keep the budget solvent and keep voters on side, and the term ends with an election in week 52. You can fix the air for real with infrastructure, research and hard choices, or you can just make it *look* fixed with PR and creative statistics. The game tracks both, and voters eventually notice the difference.
+
+### How it plays
+
+- **Build the city.** Place facilities on a 64×40 grid map of Delhi, such as AQI monitoring centres, dust control units, electric bus depots, waste management centres and a Parali Management Cell. You can also lay roads, zone land and demolish or relocate buildings.
+- **Watch it live.** Residents migrate in, look for jobs and commute. Demand for housing, shops and industry drives private development, and traffic follows the road network.
+- **Fight the seasons.** Pollution follows Delhi's real yearly cycle: late monsoon, post-monsoon crop burning (*parali*), winter inversion smog and election-season spring. Each of the 12 neighbourhoods has its own air quality.
+- **Govern.** Research upgrades, respond to random events, approve or reject policy proposals with delayed consequences, take out loans and complete weekly objectives.
+- **Win the vote.** Opinion polls lead to a 70-seat election that is decided neighbourhood by neighbourhood. Your ending and legacy title depend on how much you actually cut pollution compared with doing nothing.
+
+Pollution figures are illustrative and loosely modelled on India's NAQI AQI scale. They are not official data.
+
+### Tech stack
+
+| Layer | Tech |
+|---|---|
+| Language | TypeScript |
+| Map / rendering | Phaser 3 (procedural graphics, no sprite art) |
+| UI | React 18 |
+| State | Zustand |
+| Audio | Web Audio API (all sound is generated in code, with no audio files) |
+| Build / dev server | Vite |
+| Tests | Vitest + jsdom |
+| Lint | ESLint + typescript-eslint |
+
+The game simulation in `src/engine/` is plain TypeScript with no rendering code. It is deterministic for a given random seed, so whole 52-week games can be played out and checked in tests without a browser.
 
 ## Run
 

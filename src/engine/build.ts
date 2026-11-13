@@ -7,7 +7,7 @@ import { TICKS_PER_WEEK } from '../config/balance';
 import { CANCEL_REFUND, DEMOLITION, PLACEABLES, PLACEABLE_MAP, RELOCATION, ROAD, ZONE_INFO, ZONING, type PlaceableDef } from '../config/build';
 import { addNews, applyDeltas, canAfford, checkProgress, clamp, pay, weekOf, type ActionResult } from './core';
 import {
-  BASE_STATS, CITY, KIND_INFO, buildMap, computeMapStats, districtAt, idx, inBounds, isRoad, roadAccess, tileAt, zoneAt,
+  BASE_STATS, CITY, infoOf, buildMap, computeMapStats, districtAt, idx, inBounds, isRoad, roadAccess, tileAt, zoneAt,
   type CityMap, type MapBuilding,
 } from './map';
 import type { Deltas, GameState, Modifier, Placeable, Zone } from './types';
@@ -18,7 +18,8 @@ import { districtBreakdown, updateAir } from './air';
 
 export const liveMap = (s: GameState) => buildMap(s.cityEdits);
 
-function upkeepOf(b: MapBuilding) {
+/** Weekly upkeep of a player-placed building (base-city buildings cost nothing). */
+export function upkeepOf(b: MapBuilding) {
   if (b.placedUid === undefined) return 0;
   return PLACEABLES.find((p) => p.kind === b.kind)?.upkeep ?? 0;
 }
@@ -145,7 +146,7 @@ export function demolish(s: GameState, id: number): ActionResult {
   const info = demolitionInfo(s, m, id);
   if (!info.allowed) return { ok: false, msg: info.reason ?? 'Cannot demolish' };
   const b = m.buildings[id];
-  const label = KIND_INFO[b.kind].label;
+  const label = infoOf(b).label;
   if (info.cancel) {
     s.res.budget += info.refund;
     applyDeltas(s, info.deltas);

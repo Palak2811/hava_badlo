@@ -39,6 +39,8 @@ export interface MapBuilding {
   /** set while a placed building is still under construction */
   progress?: { started: number; done: number };
   modern?: boolean;
+  /** set for the named landmarks (Connaught Place, India Gate, Humayun's Tomb…) */
+  landmark?: LandmarkId;
 }
 
 /** Anything the player can select on the map. */
@@ -83,6 +85,22 @@ export const DISTRICTS: District[] = [
   { id: 'saritavihar', name: 'Sarita Vihar', x: 28, y: 31, w: 36, h: 9, character: 'residential', blurb: 'Quiet colonies near the river, downwind of Okhla.' },
 ];
 
+export type LandmarkId = 'cp' | 'indiagate' | 'humayun' | 'lotus' | 'redfort' | 'qutub';
+
+/**
+ * Named landmarks. Each is one protected `monument` building; its footprint is reserved before
+ * streets are laid. Residents/jobs replace the generic monument numbers (Connaught Place is the
+ * commercial heart, so it carries the jobs of the blocks it replaced).
+ */
+export const LANDMARKS: Record<LandmarkId, { x: number; y: number; w: number; h: number; label: string; blurb: string; residents: number; jobs: number; commercialTiles?: number; retailJobs?: number }> = {
+  cp: { x: 17, y: 10, w: 10, h: 10, label: 'Connaught Place', blurb: 'White Georgian colonnades in rings around Central Park and its giant flag. Every road eventually leads here, slowly.', residents: 4500, jobs: 17000, commercialTiles: 57, retailJobs: 2800 },
+  indiagate: { x: 37, y: 12, w: 2, h: 1, label: 'India Gate', blurb: 'War memorial at the end of Rajpath and the city’s favourite evening picnic spot.', residents: 0, jobs: 40 },
+  humayun: { x: 33, y: 33, w: 4, h: 4, label: 'Humayun’s Tomb', blurb: 'Mughal garden tomb of red sandstone and white marble, inside a four-part charbagh. The template for the Taj.', residents: 0, jobs: 120 },
+  lotus: { x: 38, y: 24, w: 3, h: 3, label: 'Lotus Temple', blurb: 'Twenty-seven marble petals and nine pools. Quiet inside; the traffic outside is not.', residents: 0, jobs: 60 },
+  redfort: { x: 50, y: 6, w: 5, h: 3, label: 'Red Fort', blurb: 'Shah Jahan’s red sandstone citadel by the Yamuna. The Prime Minister speaks from the Lahori Gate every August.', residents: 0, jobs: 200 },
+  qutub: { x: 22, y: 27, w: 2, h: 2, label: 'Qutub Minar', blurb: 'A 73-metre tower of fluted sandstone, eight centuries old. On bad days you cannot see the top.', residents: 0, jobs: 60 },
+};
+
 /** Facility plots for the eight department facilities (3×2 cells each, with road access). */
 export const PLOT_POS: Record<BuildingId, { x: number; y: number }> = {
   monitor: { x: 14, y: 13 },
@@ -113,6 +131,14 @@ export const KIND_INFO: Record<Kind, { label: string; residents: number; jobs: n
   busstop: { label: 'Bus stop', residents: 0, jobs: 0, blurb: 'A shelter, a route map and a crowd at 9 am.' },
   hospital: { label: 'Hospital', residents: 0, jobs: 1000, blurb: 'Respiratory OPD queues start at 6 am in winter.' },
 };
+
+/** Display + simulation info for a building, with landmark overrides. */
+export function infoOf(b: { kind: Kind; landmark?: LandmarkId }) {
+  const k = KIND_INFO[b.kind];
+  if (!b.landmark) return k;
+  const l = LANDMARKS[b.landmark];
+  return { ...k, label: l.label, blurb: l.blurb, residents: l.residents, jobs: l.jobs };
+}
 
 type Weights = Partial<Record<Kind | 'empty', number>>;
 const WEIGHTS: Record<Character, Weights> = {
@@ -204,9 +230,9 @@ export function generateCity(seed = 1947): CityMap {
 
   const buildings: MapBuilding[] = [];
   const districtAtXY = (x: number, y: number) => DISTRICTS.find((d) => x >= d.x && x < d.x + d.w && y >= d.y && y < d.y + d.h)!;
-  const place = (kind: Kind, x: number, y: number, w: number, h: number) => {
+  const place = (kind: Kind, x: number, y: number, w: number, h: number, landmark?: LandmarkId) => {
     const id = buildings.length;
-    buildings.push({ id, kind, x, y, w, h, district: districtAtXY(x, y).id, seed: Math.floor(r() * 1e6) });
+    buildings.push({ id, kind, x, y, w, h, district: districtAtXY(x, y).id, seed: Math.floor(r() * 1e6), ...(landmark ? { landmark } : {}) });
     for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) {
       set(x + dx, y + dy, kind === 'park' ? 'park' : 'lot');
       owner[idx(x + dx, y + dy)] = id;
@@ -222,8 +248,8 @@ export function generateCity(seed = 1947): CityMap {
   };
   const access = (x: number, y: number, w: number, h: number) => roadAccess({ tiles } as CityMap, x, y, w, h);
 
-  // landmarks
-  place('monument', 37, 12, 2, 1);
+  // India Gate
+  place('monument', 37, 12, 2, 1, 'indiagate');
   tiles[idx(37, 12)] = 'lot';
   tiles[idx(38, 12)] = 'lot';
   place('busterminal', 51, 24, 4, 2);
@@ -248,6 +274,29 @@ export function generateCity(seed = 1947): CityMap {
           break;
         }
       }
+    }
+  }
+
+  // The other landmarks are carved into the finished city, so everything outside their footprints
+  // (and every existing building id) stays exactly as it was before they existed.
+  for (const [id, l] of Object.entries(LANDMARKS) as [LandmarkId, (typeof LANDMARKS)[LandmarkId]][]) {
+    if (id === 'indiagate') continue;
+    for (let y = l.y; y < l.y + l.h; y++) for (let x = l.x; x < l.x + l.w; x++) {
+      const o = owner[idx(x, y)];
+      if (o < 0) continue;
+      const b = buildings[o];
+      b.removed = true;
+      for (let yy = b.y; yy < b.y + b.h; yy++) for (let xx = b.x; xx < b.x + b.w; xx++) {
+        owner[idx(xx, yy)] = -1;
+        tiles[idx(xx, yy)] = 'grass';
+      }
+    }
+    for (let y = l.y; y < l.y + l.h; y++) for (let x = l.x; x < l.x + l.w; x++) tiles[idx(x, y)] = 'grass';
+    const bid = buildings.length;
+    buildings.push({ id: bid, kind: 'monument', x: l.x, y: l.y, w: l.w, h: l.h, district: districtAtXY(l.x, l.y).id, seed: 7919 * (bid + 1), landmark: id });
+    for (let y = l.y; y < l.y + l.h; y++) for (let x = l.x; x < l.x + l.w; x++) {
+      tiles[idx(x, y)] = 'lot';
+      owner[idx(x, y)] = bid;
     }
   }
 
@@ -314,7 +363,7 @@ export function areaStats(m: CityMap, districtId?: string): AreaStats {
   for (const b of m.buildings) {
     if (b.removed || b.progress) continue;
     if (districtId && b.district !== districtId) continue;
-    const k = KIND_INFO[b.kind];
+    const k = infoOf(b);
     const scale = b.w * b.h > 1 && (b.kind === 'house' || b.kind === 'shop') ? b.w * b.h : 1;
     st.population += k.residents * scale;
     st.jobs += k.jobs * scale;
@@ -375,8 +424,12 @@ export function buildMap(edits: CityEdits, base: CityMap = CITY): CityMap {
       m.owner[idx(x, y)] = -1;
     }
   }
-  for (const r of edits.roads) m.tiles[r.i] = r.built ? 'street' : 'roadwork';
+  const onLandmark = (i: number) => m.owner[i] >= 0 && m.buildings[m.owner[i]].landmark !== undefined;
+  for (const r of edits.roads) if (!onLandmark(r.i)) m.tiles[r.i] = r.built ? 'street' : 'roadwork';
   for (const p of edits.placed) {
+    let blocked = false;
+    for (let y = p.y; y < p.y + p.h; y++) for (let x = p.x; x < p.x + p.w; x++) if (onLandmark(idx(x, y))) blocked = true;
+    if (blocked) continue;
     const id = m.buildings.length;
     const kind = PLACED_KIND[p.kind];
     m.buildings.push({
@@ -401,9 +454,13 @@ export function computeMapStats(m: CityMap, upkeepOf: (b: MapBuilding) => number
       s.constructionSites++;
       continue;
     }
-    const k = KIND_INFO[b.kind];
+    const k = infoOf(b);
     const area = b.w * b.h;
     const scale = b.kind === 'house' || b.kind === 'shop' ? area : 1;
+    if (b.landmark) {
+      s.commercialTiles += LANDMARKS[b.landmark].commercialTiles ?? 0;
+      s.retailJobs += LANDMARKS[b.landmark].retailJobs ?? 0;
+    }
     s.population += k.residents * scale;
     s.jobs += k.jobs * scale;
     s.upkeep += upkeepOf(b);

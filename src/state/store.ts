@@ -7,7 +7,7 @@ import {
 } from '../engine/core';
 import { applyOffline, load, reset as resetSave, save } from '../engine/save';
 import type { BuildingId, GameState, OfflineSummary, Settings } from '../engine/types';
-import { KIND_INFO, buildMap, type CityMap, type Pick } from '../engine/map';
+import { buildMap, infoOf, type CityMap, type Pick } from '../engine/map';
 import { buildRoad, demolish, demolitionInfo, placeBuilding, zoneArea } from '../engine/build';
 import { decideProposal, repealPolicy } from '../engine/approvals';
 import { applyRecovery } from '../engine/economy';
@@ -272,7 +272,7 @@ export const useGame = create<Store>((set, get) => {
         get().toast({ kind: 'bad', title: info.reason ?? 'Cannot demolish' });
         return;
       }
-      const label = KIND_INFO[b.kind].label.toLowerCase();
+      const label = infoOf(b).label.toLowerCase();
       const effects = Object.entries(info.deltas).map(([k, v]) => `${k} ${(v as number) > 0 ? '+' : ''}${v}`).join(', ');
       get().askConfirm({
         title: info.cancel ? 'Cancel construction?' : `Demolish this ${label}?`,

@@ -9,3 +9,8 @@ export const cityControls: { zoomBy: ZoomBy; reset: () => void; focusTile: Focus
   reset: noop,
   focusTile: noop,
 };
+
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  // debugging / screenshots: window.__hbCamera.focusTile(x, y, zoom)
+  (window as unknown as { __hbCamera: typeof cityControls }).__hbCamera = cityControls;
+}
