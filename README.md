@@ -2,14 +2,14 @@
 
 *A nation-sized problem. A government-sized budget.*
 
-A satirical idle / city-management game set in Delhi. You are the new Commissioner of the Department of Clean Air and have 30 in-game days to bring the AQI down. You can do it for real with infrastructure, research and hard choices, or you can make it *look* done.
+A satirical idle / city-management game set in Delhi. You are the new Commissioner of the Department of Clean Air and have a 4-week term (28 in-game days) to bring the AQI down. You can do it for real with infrastructure, research and hard choices, or you can make it *look* done.
 
 ## Run
 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 52 unit tests (Vitest)
+npm test           # 54 unit tests (Vitest)
 npm run lint
 npm run typecheck
 npm run build      # production build into dist/
@@ -31,9 +31,9 @@ src/
     save.ts       ← versioned localStorage save, validation/migration, corrupt-save recovery, offline progress
     rng.ts        ← seeded Mulberry32; RNG state lives in the save
   state/store.ts  ← Zustand store: game loop glue, autosave, toasts, sound triggers
-  city/           ← Phaser 3 scene (lazy-loaded): procedurally drawn pseudo-isometric Delhi
+  city/           ← Phaser 3 scene (lazy-loaded): flat top-down Delhi neighbourhood, drag to pan on phones
   audio/sound.ts  ← procedural WebAudio SFX plus a tanpura drone and Raag Bhupali music (no audio files)
-  ui/             ← React screens, modals, SVG charts
+  ui/             ← map-first React UI: floating HUD, contextual panel, drawers, weekly briefing/report, decision screen
 tests/engine.test.ts
 ```
 

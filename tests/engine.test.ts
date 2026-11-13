@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BUILDING_MAP, ECONOMY, OPTICS, RESEARCH, SAVE_KEY, START, TICKS_PER_DAY } from '../src/config/balance';
+import { BUILDING_MAP, CAMPAIGN_DAYS, ECONOMY, OPTICS, RESEARCH, SAVE_KEY, START, TICKS_PER_DAY } from '../src/config/balance';
 import { EVENTS, EVENT_MAP } from '../src/config/events';
 import { ACHIEVEMENTS } from '../src/config/content';
 import {
@@ -435,10 +435,10 @@ describe('offline progression', () => {
     const { state, summary } = applyOffline(s, 100 * 3600 * 1000);
     expect(summary!.seconds).toBe(8 * 3600);
     expect(state.ended).toBeNull();
-    s.tick = 29 * TICKS_PER_DAY + 50;
+    s.tick = (CAMPAIGN_DAYS - 1) * TICKS_PER_DAY + 50;
     const late = applyOffline(s, 100 * 3600 * 1000).state;
     expect(late.ended).toBeNull();
-    expect(late.tick).toBeLessThan(30 * TICKS_PER_DAY);
+    expect(late.tick).toBeLessThan(CAMPAIGN_DAYS * TICKS_PER_DAY);
   });
 
   it('handles negative net income offline without going below the debt floor', () => {
@@ -478,9 +478,9 @@ describe('endings', () => {
   it('Committee Specialist', () => expect(evaluateEnding({ ...base, committees: 4, reports: 3, reduction: 5 })).toBe('committee'));
   it('PR Champion', () => expect(evaluateEnding({ ...base, opticsUsed: 9, officialAqi: 200, reduction: 3 })).toBe('pr'));
 
-  it('the campaign ends after day 30 with an ending', () => {
+  it('the campaign ends after the last day with an ending', () => {
     const s = fresh();
-    run(s, 30 * TICKS_PER_DAY + 1);
+    run(s, CAMPAIGN_DAYS * TICKS_PER_DAY + 1);
     expect(s.ended).not.toBeNull();
     const t = s.tick;
     run(s, 100);
@@ -490,7 +490,7 @@ describe('endings', () => {
 
   it('sandbox continues after the ending', () => {
     const s = fresh();
-    run(s, 30 * TICKS_PER_DAY + 1);
+    run(s, CAMPAIGN_DAYS * TICKS_PER_DAY + 1);
     s.sandbox = true;
     const t = s.tick;
     run(s, 10);
@@ -529,5 +529,26 @@ describe('progression & achievements', () => {
     run(a, 50);
     run(b, 50);
     expect(baselineAqi(a)).toBe(baselineAqi(b));
+  });
+});
+
+describe('weeks', () => {
+  it('produces a weekly report every 7 days with start/end snapshots', () => {
+    const s = fresh();
+    run(s, 7 * TICKS_PER_DAY);
+    expect(s.weekReports.length).toBe(1);
+    expect(s.reportPending).toBe(true);
+    const r = s.weekReports[0];
+    expect(r.week).toBe(1);
+    expect(r.start.day).toBe(1);
+    expect(r.end.day).toBe(8);
+    expect(s.weekStart.week).toBe(2);
+  });
+
+  it('a full campaign is exactly four weeks with four reports', () => {
+    const s = fresh();
+    run(s, CAMPAIGN_DAYS * TICKS_PER_DAY + 1);
+    expect(s.weekReports.map((r) => r.week)).toEqual([1, 2, 3, 4]);
+    expect(s.ended).not.toBeNull();
   });
 });

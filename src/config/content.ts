@@ -158,11 +158,34 @@ export const LOADING_LINES = [
 ];
 
 export const TUTORIAL_STEPS = [
-  { title: 'Welcome, Commissioner!', icon: '🎖️', text: 'You run the brand-new Department of Clean Air. Your mission: bring Delhi’s AQI below 100 in 30 days. Your resources: almost nothing. Good luck.' },
-  { title: 'The AQI indicator', icon: '🌫️', text: 'The big dial shows the OFFICIAL AQI. Below it is the independent estimate of the ACTUAL air. Seasons matter: parali smoke arrives on Day 6, winter inversion on Day 15.' },
+  { title: 'Welcome, Commissioner!', icon: '🎖️', text: 'You run the brand-new Department of Clean Air. Your mission: bring Delhi’s AQI below 100 in 4 weeks. Your resources: almost nothing. Good luck.' },
+  { title: 'Reading the air', icon: '🌫️', text: 'The top bar shows the ACTUAL AQI measured by independent sensors — lower is better. Seasons matter: parali smoke drifts in during Week 1, the winter inversion arrives in Week 3.' },
   { title: 'Earning money', icon: '💰', text: 'The government pays you an allocation every day — more when public trust is high. Buildings cost maintenance, so watch your net income.' },
-  { title: 'Buying buildings', icon: '🏗️', text: 'Open Infrastructure (or click an empty plot on the map) to build. Each facility attacks a pollution source. Upgrades make them stronger.' },
+  { title: 'Building the city', icon: '🏗️', text: 'Tap any dashed plot on the map to build a facility. Tap a facility to inspect or upgrade it. Each one attacks a specific pollution source.' },
   { title: 'Research', icon: '🔬', text: 'The Monitoring Centre generates Research Points. Spend them in the tech tree: real pollution control, public awareness, or… political survival.' },
   { title: 'Events', icon: '📰', text: 'Things happen: Diwali, protests, ministers. Each event has choices with real trade-offs. Ignore them and the worst option is picked for you.' },
   { title: 'Actual vs Official', icon: '🎭', text: 'The Department of Optics can make the OFFICIAL AQI look great without changing the air. It works… until a journalist notices. Your ending depends on what you really did.' },
+];
+
+export const WEEK_BRIEFS = [
+  {
+    title: 'Welcome to Delhi',
+    challenge: 'Set up your first facilities before the parali smoke arrives.',
+    text: 'Congratulations, Commissioner! Delhi has a small problem. Actually, quite a large one. The air is not particularly breathable, your office has one chair, and the Ministry would like results by Tuesday.',
+  },
+  {
+    title: 'The smoke season',
+    challenge: 'Stubble burning upwind and Diwali in the city. Protect the air without losing the people.',
+    text: 'Satellites show hundreds of farm fires to the north-west. Firecracker shops have opened. Every uncle has a “green cracker” that is suspiciously loud. Brace yourself.',
+  },
+  {
+    title: 'Winter is coming (it’s here)',
+    challenge: 'The inversion traps everything near the ground. Real infrastructure matters now.',
+    text: 'Cold, still air has put a lid on the city. Flights are diverted, schools are asking questions, and a minister has discovered the word “unprecedented”.',
+  },
+  {
+    title: 'The final stretch',
+    challenge: 'Your term ends this week. What will the record say — the air, or the press releases?',
+    text: 'The Ministry is drafting your evaluation. Journalists are drafting theirs. The air, as usual, is not drafting anything; it is simply sitting there.',
+  },
 ];

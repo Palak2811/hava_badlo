@@ -143,6 +143,7 @@ export interface GameStats {
   cacEarned: number;
   /** sum of (baseline - actual) AQI integrated per day */
   aqiReductionDays: number;
+  objectivesDone: number;
 }
 
 export interface Settings {
@@ -193,6 +194,31 @@ export interface GameState {
   aqiRenamed: boolean;
   pressureMaxedDays: number;
   lastOpticsDay: number;
+  weekStart: WeekSnap;
+  weekReports: WeekReport[];
+  reportPending: boolean;
+  briefingSeen: number;
+}
+
+export interface WeekSnap {
+  week: number;
+  day: number;
+  budget: number;
+  aqi: number;
+  baseline: number;
+  trust: number;
+  emissions: Record<Source, number>;
+  eventsHandled: number;
+  objectivesDone: number;
+  newsSeq: number;
+}
+
+export interface WeekReport {
+  week: number;
+  start: WeekSnap;
+  end: WeekSnap;
+  headlines: string[];
+  consequences: string[];
 }
 
 export interface OfflineSummary {

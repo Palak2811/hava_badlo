@@ -27,7 +27,8 @@ export default function CityView() {
       game.scene.add('city', CityScene, true, {
         bridge: {
           getState: () => useGame.getState().game,
-          onSelect: (id: import('../engine/types').BuildingId) => useGame.getState().select(id),
+          getSelected: () => useGame.getState().selected,
+          onSelect: (id: import('../engine/types').BuildingId | null) => useGame.getState().select(id),
           animations: () => useGame.getState().settings.animations,
         },
       });

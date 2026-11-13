@@ -10,7 +10,9 @@ export const SETTINGS_KEY = 'hawa-badlo-settings';
 
 /** One tick = one in-game "second". At 1x speed one tick happens every real second. */
 export const TICKS_PER_DAY = 60;
-export const CAMPAIGN_DAYS = 30;
+export const CAMPAIGN_DAYS = 28;
+export const DAYS_PER_WEEK = 7;
+export const CAMPAIGN_WEEKS = CAMPAIGN_DAYS / DAYS_PER_WEEK;
 
 export const START: Resources = {
   budget: 10000,

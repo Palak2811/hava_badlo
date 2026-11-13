@@ -1,4 +1,4 @@
-import { OFFLINE, SAVE_KEY, SAVE_VERSION, TICKS_PER_DAY } from '../config/balance';
+import { CAMPAIGN_DAYS, OFFLINE, SAVE_KEY, SAVE_VERSION, TICKS_PER_DAY } from '../config/balance';
 import { BUILDINGS } from '../config/balance';
 import { newGame, step } from './core';
 import type { GameState, OfflineSummary } from './types';
@@ -39,7 +39,7 @@ export function validate(raw: unknown): GameState | null {
     const lv = (st.buildings as Record<string, unknown>)[b.id];
     merged.buildings[b.id] = isNum(lv) ? Math.max(0, Math.min(b.levels.length, Math.floor(lv as number))) : 0;
   }
-  for (const k of ['research', 'effects', 'events', 'eventHistory', 'news', 'history', 'daily', 'objectives', 'achievements', 'stageObjectivesDone', 'committeesPending'] as const) {
+  for (const k of ['research', 'effects', 'events', 'eventHistory', 'news', 'history', 'daily', 'objectives', 'achievements', 'stageObjectivesDone', 'committeesPending', 'weekReports'] as const) {
     if (!Array.isArray(merged[k])) (merged as unknown as Record<string, unknown>)[k] = (base as unknown as Record<string, unknown>)[k];
   }
   merged.version = SAVE_VERSION;
@@ -74,7 +74,7 @@ export function reset(storage: StorageLike) {
 /**
  * Offline progression. The calendar keeps moving (the department works while you sleep) but at
  * half efficiency, events are not spawned and pending events wait for you. Capped at 8 hours,
- * and never runs past the end of the 30-day term.
+ * and never runs past the end of the term.
  */
 export function applyOffline(s: GameState, now: number): { state: GameState; summary: OfflineSummary | null } {
   const elapsed = Math.floor((now - (s.lastActive ?? now)) / 1000);
@@ -83,7 +83,7 @@ export function applyOffline(s: GameState, now: number): { state: GameState; sum
   let ticks = Math.floor(seconds * OFFLINE.efficiency);
   ticks = Math.min(ticks, OFFLINE.maxDaysOfIncome * TICKS_PER_DAY);
   // never auto-finish the campaign while away
-  const lastTick = 30 * TICKS_PER_DAY - 1;
+  const lastTick = CAMPAIGN_DAYS * TICKS_PER_DAY - 1;
   if (!s.sandbox) ticks = Math.max(0, Math.min(ticks, lastTick - s.tick));
   const next = structuredClone(s);
   const before = { ...next.res };

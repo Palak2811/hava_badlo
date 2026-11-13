@@ -10,14 +10,14 @@
  * A parallel "baseline" concentration evolves with zero player controls to measure impact.
  */
 import {
-  AQI_BREAKPOINTS, BUILDINGS, BUILDING_MAP, CAMPAIGN_DAYS, COMMITTEE, CREDIBILITY, ECONOMY, EVENTS_CFG,
+  AQI_BREAKPOINTS, BUILDINGS, BUILDING_MAP, CAMPAIGN_DAYS, DAYS_PER_WEEK, COMMITTEE, CREDIBILITY, ECONOMY, EVENTS_CFG,
   OPTICS, OPTICS_MAP, POLLUTION, PRESSURE, RESEARCH, RESEARCH_MAP, SAVE_VERSION, SEASONS, STAGE2_AUTO_DAY,
   STAGE2_GRANT, START, START_PARTICIPATION, TICKS_PER_DAY, TRUST, VICTORY, type SeasonDef,
 } from '../config/balance';
 import { EVENTS, EVENT_MAP, type EventCtx } from '../config/events';
 import { ACHIEVEMENTS, NEWS_TEMPLATES, OBJECTIVE_TEMPLATES, STAGE_OBJECTIVES } from '../config/content';
 import { nextRandom } from './rng';
-import { SOURCES, type BuildingId, type Cost, type Deltas, type EndingId, type GameState, type Modifier, type NewsKind, type Source } from './types';
+import { SOURCES, type WeekSnap, type BuildingId, type Cost, type Deltas, type EndingId, type GameState, type Modifier, type NewsKind, type Source } from './types';
 
 export const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -56,7 +56,7 @@ export function newGame(seed = Date.now() % 2147483647, now = Date.now()): GameS
     achievements: [],
     stats: {
       highestAqi: 0, lowestAqi: 999, totalSpent: 0, eventsHandled: 0, opticsUsed: 0, committees: 0, reports: 0,
-      purifiers: 0, toughDecisions: 0, exposures: 0, buildingsBought: 0, upgradesBought: 0, cacEarned: 0, aqiReductionDays: 0,
+      purifiers: 0, toughDecisions: 0, exposures: 0, buildingsBought: 0, upgradesBought: 0, cacEarned: 0, aqiReductionDays: 0, objectivesDone: 0,
     },
     ended: null,
     sandbox: false,
@@ -65,11 +65,16 @@ export function newGame(seed = Date.now() % 2147483647, now = Date.now()): GameS
     aqiRenamed: false,
     pressureMaxedDays: 0,
     lastOpticsDay: 0,
+    weekStart: null as unknown as WeekSnap,
+    weekReports: [],
+    reportPending: false,
+    briefingSeen: 0,
   };
   // settle the atmosphere to day-1 steady state
   const target = steadyConc(s, false);
   s.conc = target;
   s.baselineConc = steadyConc(s, true);
+  s.weekStart = weekSnap(s);
   rollDailyObjectives(s);
   addNews(s, 'gov', 'New Commissioner Appointed to Department of Clean Air; Department Consists of One Desk', 'Your office has a chair, a kettle and a view of the smog. Let us begin.');
   sample(s);
@@ -543,6 +548,7 @@ function evaluateObjectives(s: GameState, dayEnd: boolean) {
     else done = t.metric(s) - o.start >= o.target;
     if (done) {
       o.done = true;
+      s.stats.objectivesDone += 1;
       applyDeltas(s, o.reward);
     }
   }
@@ -738,6 +744,7 @@ function endOfDay(s: GameState, offline: boolean) {
   const prevDay = dayOf(s) - 1;
   evaluateObjectives(s, true);
   s.daily.push({ day: prevDay, aqi: actualAqi(s), official: officialAqi(s), baseline: baselineAqi(s), trust: Math.round(s.res.trust), credibility: Math.round(s.res.credibility) });
+  if (prevDay % DAYS_PER_WEEK === 0 && !s.sandbox) closeWeek(s);
 
   if (prevDay >= CAMPAIGN_DAYS && !s.ended && !s.sandbox) {
     s.ended = evaluateEnding(endingInput(s));
@@ -776,6 +783,33 @@ function endOfDay(s: GameState, offline: boolean) {
   rollDailyObjectives(s);
   if (!offline) rollEvents(s);
   checkProgress(s);
+}
+
+/* -------------------------------------------------------------- weeks */
+
+export const weekOf = (s: GameState) => Math.min(CAMPAIGN_DAYS / DAYS_PER_WEEK, Math.ceil(dayOf(s) / DAYS_PER_WEEK));
+export const dayOfWeek = (s: GameState) => ((dayOf(s) - 1) % DAYS_PER_WEEK) + 1;
+
+export function weekSnap(s: GameState): WeekSnap {
+  return {
+    week: Math.ceil(dayOf(s) / DAYS_PER_WEEK), day: dayOf(s), budget: Math.round(s.res.budget), aqi: actualAqi(s), baseline: baselineAqi(s),
+    trust: Math.round(s.res.trust), emissions: emissions(s), eventsHandled: s.stats.eventsHandled, objectivesDone: s.stats.objectivesDone, newsSeq: s.newsSeq,
+  };
+}
+
+/** Called at the end of day 7, 14, 21, 28: archive a report and start a new snapshot. */
+function closeWeek(s: GameState) {
+  const start = s.weekStart ?? weekSnap(s);
+  const end = { ...weekSnap(s), week: start.week };
+  const fresh = s.news.filter((n) => n.id > start.newsSeq);
+  const headlines = fresh.filter((n) => n.kind === 'satire' || n.kind === 'citizen' || n.kind === 'viral').slice(0, 3).map((n) => n.headline);
+  const consequences = fresh
+    .filter((n) => n.kind === 'investigation' || n.body?.startsWith('No decision') || /Report|Victory|EXPOSED/i.test(n.headline))
+    .slice(0, 4)
+    .map((n) => (n.body?.startsWith('No decision') ? `No decision — ${n.headline.split(':')[0]}` : n.headline));
+  s.weekReports.push({ week: start.week, start, end, headlines, consequences });
+  s.reportPending = true;
+  s.weekStart = weekSnap(s);
 }
 
 /** Advance n ticks, returning a new state object (the input is not mutated). */

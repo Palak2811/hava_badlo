@@ -3,13 +3,13 @@ import { SETTINGS_KEY } from '../config/balance';
 import { ACHIEVEMENTS } from '../config/content';
 import { EVENT_MAP } from '../config/events';
 import {
-  buyBuilding, claimGrant, doResearch, newGame, resolveEvent, step, executeOptics, type ActionResult,
+  buyBuilding, claimGrant, weekOf, doResearch, newGame, resolveEvent, step, executeOptics, type ActionResult,
 } from '../engine/core';
 import { applyOffline, load, reset as resetSave, save } from '../engine/save';
 import type { BuildingId, GameState, OfflineSummary, Settings } from '../engine/types';
 import { sound } from '../audio/sound';
 
-export type Tab = 'city' | 'infra' | 'research' | 'news' | 'admin' | 'stats';
+export type Tab = 'city' | 'research' | 'news' | 'admin';
 export interface Toast { id: number; kind: 'good' | 'bad' | 'info' | 'achievement'; title: string; body?: string }
 
 const DEFAULT_SETTINGS: Settings = { sound: true, music: false, musicVolume: 0.4, sfxVolume: 0.6, animations: true };
@@ -50,6 +50,8 @@ interface Store {
   resetGame: () => void;
   continueSandbox: () => void;
   finishTutorial: () => void;
+  dismissReport: () => void;
+  dismissBriefing: () => void;
   updateSettings: (p: Partial<Settings>) => void;
   toast: (t: Omit<Toast, 'id'>) => void;
   dismissToast: (id: number) => void;
@@ -182,6 +184,15 @@ export const useGame = create<Store>((set, get) => {
     },
     finishTutorial: () => {
       set({ game: { ...get().game, tutorialDone: true } });
+      get().persist();
+    },
+    dismissReport: () => {
+      set({ game: { ...get().game, reportPending: false } });
+      get().persist();
+    },
+    dismissBriefing: () => {
+      const g = get().game;
+      set({ game: { ...g, briefingSeen: weekOf(g) } });
       get().persist();
     },
     updateSettings: (p) => {

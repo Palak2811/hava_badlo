@@ -1,26 +1,33 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { LOADING_LINES } from '../config/content';
+import { weekOf } from '../engine/core';
 import { useGame, type Tab } from '../state/store';
-import TopBar from './TopBar';
-import CityTab from './screens/CityTab';
-import InfraTab from './screens/InfraTab';
-import ResearchTab from './screens/ResearchTab';
-import NewsTab from './screens/NewsTab';
-import AdminTab from './screens/AdminTab';
-import StatsTab from './screens/StatsTab';
-import { BuildingModal, ConfirmModal, EndingModal, EventModal, OfflineModal, SettingsModal, TutorialModal } from './components/Modals';
-import { Confetti, Floaters, Toasts } from './components/Feedback';
+import { Hud } from './Hud';
+import { ContextPanel, EventChip } from './MapOverlay';
+import { Icon, type IconName } from './icons';
+import ResearchScreen from './screens/ResearchTab';
+import NewsScreen from './screens/NewsTab';
+import AdminScreen from './screens/AdminTab';
+import { BriefingModal, ConfirmModal, DecisionModal, EndingModal, OfflineModal, ReportModal, SettingsModal, TutorialModal } from './components/Modals';
+import { Confetti, Toasts } from './components/Feedback';
 
 const CityView = lazy(() => import('../city/CityView'));
 
-const TABS: { id: Tab; label: string; icon: string }[] = [
-  { id: 'city', label: 'City Overview', icon: '🏙️' },
-  { id: 'infra', label: 'Infrastructure', icon: '🏗️' },
-  { id: 'research', label: 'Research & Tech', icon: '🔬' },
-  { id: 'news', label: 'News & Events', icon: '📰' },
-  { id: 'admin', label: 'Administration', icon: '🎭' },
-  { id: 'stats', label: 'Statistics', icon: '📊' },
+const NAV: { id: Tab; label: string; icon: IconName }[] = [
+  { id: 'city', label: 'City', icon: 'city' },
+  { id: 'research', label: 'Research', icon: 'flask' },
+  { id: 'news', label: 'News & Events', icon: 'news' },
+  { id: 'admin', label: 'Administration', icon: 'landmark' },
 ];
+
+/** The simulation only runs while nothing important is waiting on the player. */
+function shouldPause() {
+  const { game: g } = useGame.getState();
+  if (!g.tutorialDone || g.reportPending) return true;
+  if (g.ended && !g.sandbox) return true;
+  if (!g.sandbox && g.briefingSeen < weekOf(g)) return true;
+  return false;
+}
 
 function useGameLoop() {
   const acc = useRef(0);
@@ -31,7 +38,7 @@ function useGameLoop() {
       const dt = Math.min(2, (now - last) / 1000);
       last = now;
       const st = useGame.getState();
-      if ((st.game.ended && !st.game.sandbox) || !st.game.tutorialDone) return;
+      if (shouldPause()) return;
       acc.current += dt * st.game.speed;
       const n = Math.floor(acc.current);
       if (n > 0) {
@@ -39,7 +46,7 @@ function useGameLoop() {
         const before = st.game.res.budget;
         st.tickReal(n);
         const gained = useGame.getState().game.res.budget - before;
-        if (st.settings.animations && st.tab === 'city' && gained > 0 && Math.random() < 0.3) st.float(`+₹${Math.round(gained)}`, '#16a34a');
+        if (st.settings.animations && gained > 0 && Math.random() < 0.25) st.float(`+₹${Math.round(gained)}`, 'var(--good)');
       }
     }, 250);
     const save = window.setInterval(() => useGame.getState().persist(), 5000);
@@ -58,7 +65,7 @@ function useGameLoop() {
 function Loading({ onDone }: { onDone: () => void }) {
   const [p, setP] = useState(0);
   useEffect(() => {
-    const id = window.setInterval(() => setP((x) => Math.min(100, x + 7 + Math.random() * 12)), 90);
+    const id = window.setInterval(() => setP((x) => Math.min(100, x + 8 + Math.random() * 12)), 90);
     return () => window.clearInterval(id);
   }, []);
   useEffect(() => {
@@ -69,15 +76,37 @@ function Loading({ onDone }: { onDone: () => void }) {
   }, [p, onDone]);
   return (
     <div className="loading">
-      <div className="loading-sky">
-        <div className="loading-sun" />
-        <div className="loading-smog" style={{ opacity: 1 - p / 110 }} />
+      <div className="loading-grid" aria-hidden />
+      <div className="loading-card">
+        <div className="wordmark">Hawa <b>Badlo</b></div>
+        <p>A nation-sized problem. A government-sized budget.</p>
+        <div className="progress"><i style={{ width: `${p}%` }} /></div>
+        <small>{LOADING_LINES[Math.min(LOADING_LINES.length - 1, Math.floor(p / 21))]}</small>
       </div>
-      <h1 className="logo">HAWA <span>BADLO</span></h1>
-      <p className="tagline">A nation-sized problem. A government-sized budget.</p>
-      <div className="bar"><div style={{ width: `${p}%` }} /></div>
-      <p className="loading-line">{LOADING_LINES[Math.min(LOADING_LINES.length - 1, Math.floor(p / 21))]}</p>
     </div>
+  );
+}
+
+function Drawer({ tab }: { tab: Tab }) {
+  const setTab = useGame((s) => s.setTab);
+  const item = NAV.find((n) => n.id === tab)!;
+  useEffect(() => {
+    const k = (e: KeyboardEvent) => e.key === 'Escape' && setTab('city');
+    window.addEventListener('keydown', k);
+    return () => window.removeEventListener('keydown', k);
+  }, [setTab]);
+  return (
+    <aside className="drawer" aria-label={item.label}>
+      <header className="drawer-head">
+        <h2><Icon name={item.icon} size={20} /> {item.label}</h2>
+        <button className="icon-btn" onClick={() => setTab('city')} aria-label="Back to city"><Icon name="x" /></button>
+      </header>
+      <div className="drawer-body">
+        {tab === 'research' && <ResearchScreen />}
+        {tab === 'news' && <NewsScreen />}
+        {tab === 'admin' && <AdminScreen />}
+      </div>
+    </aside>
   );
 }
 
@@ -100,42 +129,36 @@ export default function App() {
   if (!ready) return <Loading onDone={() => setReady(true)} />;
 
   return (
-    <div className="app">
-      <TopBar />
-      <nav className="tabs" role="tablist">
-        {TABS.map((t) => (
-          <button key={t.id} role="tab" aria-selected={tab === t.id} className={`tab ${tab === t.id ? 'active' : ''}`} onClick={() => setTab(t.id)}>
-            <span className="tab-icon">{t.icon}</span>
-            <span className="tab-label">{t.label}</span>
-            {t.id === 'news' && pending > 0 && <span className="badge pulse">{pending}</span>}
+    <div className="game">
+      <div className="map-layer">
+        <Suspense fallback={<div className="map-fallback">Drawing Delhi…</div>}>
+          <CityView />
+        </Suspense>
+      </div>
+      <Hud />
+      <EventChip />
+      <ContextPanel />
+      {tab !== 'city' && <div className="scrim" onClick={() => setTab('city')} />}
+      {tab !== 'city' && <Drawer tab={tab} />}
+      <nav className="nav" aria-label="Main">
+        {NAV.map((n) => (
+          <button key={n.id} className={`nav-item ${tab === n.id ? 'on' : ''}`} onClick={() => setTab(n.id)} aria-current={tab === n.id}>
+            <Icon name={n.icon} size={20} />
+            <span>{n.label}</span>
+            {n.id === 'news' && pending > 0 && <em className="dot">{pending}</em>}
           </button>
         ))}
       </nav>
-      <main className={`main ${tab === 'city' ? 'is-city' : ''}`}>
-        <section className="city-wrap">
-          <Suspense fallback={<div className="city-canvas city-fallback">Drawing Delhi…</div>}>
-            <CityView />
-          </Suspense>
-          <Floaters />
-        </section>
-        <section className="panel-area" key={tab}>
-          {tab === 'city' && <CityTab />}
-          {tab === 'infra' && <InfraTab />}
-          {tab === 'research' && <ResearchTab />}
-          {tab === 'news' && <NewsTab />}
-          {tab === 'admin' && <AdminTab />}
-          {tab === 'stats' && <StatsTab />}
-        </section>
-      </main>
       <Toasts />
       <Confetti />
-      <EventModal />
-      <BuildingModal />
+      <DecisionModal />
       <ConfirmModal />
       <SettingsModal />
       <OfflineModal />
       <TutorialModal />
+      <ReportModal />
       <EndingModal />
+      <BriefingModal />
     </div>
   );
 }
