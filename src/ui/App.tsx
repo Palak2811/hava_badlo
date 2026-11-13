@@ -10,7 +10,7 @@ import { Intro } from './Intro';
 import { BuildPalette, ToolPanel } from './BuildPalette';
 import { CityPulse } from './CityPulse';
 import { ElectionNight, WeekCard } from './Campaign';
-import { Tutorial } from './Tutorial';
+import { Tip, Tutorial } from './Tutorial';
 import { Icon, type IconName } from './icons';
 import ResearchScreen from './screens/ResearchTab';
 import NewsScreen from './screens/NewsTab';
@@ -167,7 +167,7 @@ export default function App() {
           <span>Build</span>
         </button>
         {NAV.map((n) => (
-          <button key={n.id} className={`nav-item ${tab === n.id && !buildOpen ? 'on' : ''}`} onClick={() => setTab(n.id)} aria-current={tab === n.id}>
+          <button key={n.id} className={`nav-item nav-${n.id} ${tab === n.id && !buildOpen ? 'on' : ''}`} onClick={() => setTab(n.id)} aria-current={tab === n.id}>
             <Icon name={n.icon} size={20} />
             <span>{n.label}</span>
             {n.id === 'news' && pending > 0 && <em className="dot">{pending}</em>}
@@ -186,6 +186,7 @@ export default function App() {
       <WeekCard />
       <BriefingModal />
       <Tutorial />
+      <Tip />
       <Intro />
     </div>
   );

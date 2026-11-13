@@ -4,8 +4,8 @@
  * without dictating a strategy.
  */
 import { DISTRICTS } from './map';
-import { districtAqi } from './air';
-import { actualAqi, applyDeltas, weekOf } from './core';
+import { BASE_AIR, districtAqi } from './air';
+import { applyDeltas, reductionPct, weekOf } from './core';
 import { nextRandom } from './rng';
 import type { DailyObjective, Deltas, GameState } from './types';
 
@@ -22,17 +22,24 @@ interface Template {
   check?: (s: GameState, o: DailyObjective) => boolean;
 }
 
-const projects = (s: GameState) => s.stats.buildingsBought + s.stats.upgradesBought + s.stats.projectsCompleted;
+const projects = (s: GameState) => s.stats.buildingsBought + s.stats.upgradesBought + s.stats.playerProjects;
+/** % below the do-nothing level in one neighbourhood — immune to weather swings */
+export function districtReduction(s: GameState, id: string) {
+  const base = districtAqi(BASE_AIR, s.baselineConc, id);
+  return base > 0 ? ((base - districtAqi(s.air, s.conc, id)) / base) * 100 : 0;
+}
 
 export const OBJECTIVES: Template[] = [
   /* ---------------- air */
   {
     id: 'aqi', group: 'air', kind: 'weekEnd',
     make: (s) => {
-      const target = Math.max(100, Math.round((actualAqi(s) + 10) / 10) * 10);
-      return { label: `End the week with city AQI ≤ ${target}`, target, reward: { budget: 1500, trust: 2 } };
+      // measured against "doing nothing", so a windy week can't complete it
+      const target = Math.max(2, Math.floor(reductionPct(s)) + 2);
+      if (target > 60) return null;
+      return { label: `Cut city AQI ${target}% below the do-nothing level`, target, reward: { budget: 1500, trust: 2 } };
     },
-    check: (s, o) => actualAqi(s) <= o.target,
+    check: (s, o) => reductionPct(s) >= o.target,
   },
   {
     id: 'district', group: 'air', kind: 'weekEnd',
@@ -42,17 +49,19 @@ export const OBJECTIVES: Template[] = [
       const ranked = DISTRICTS.filter((d) => (s.air.pop[d.id] ?? 0) > 3000).sort((a, b) => districtAqi(s.air, s.conc, b.id) - districtAqi(s.air, s.conc, a.id));
       const d = ranked[0];
       if (!d) return null;
-      const target = Math.max(100, Math.round((districtAqi(s.air, s.conc, d.id) - 5) / 5) * 5);
-      return { label: `Bring ${d.name}’s AQI to ${target} or below`, target, param: d.id, reward: { budget: 2500, trust: 3 } };
+      const target = Math.max(3, Math.floor(districtReduction(s, d.id)) + 3);
+      if (target > 60) return null;
+      return { label: `Cut ${d.name}’s AQI ${target}% below the do-nothing level`, target, param: d.id, reward: { budget: 2500, trust: 3 } };
     },
-    check: (s, o) => districtAqi(s.air, s.conc, o.param!) <= o.target,
+    check: (s, o) => districtReduction(s, o.param!) >= o.target,
   },
   /* ---------------- city */
   {
     id: 'trust', group: 'city', kind: 'weekEnd',
     make: (s) => {
-      const target = Math.max(40, Math.floor(s.res.trust / 5) * 5);
-      return { label: `Keep public trust at ${target}% or more`, target, reward: { capital: 3 } };
+      if (s.res.trust >= 95) return null;
+      const target = Math.min(100, Math.ceil(s.res.trust) + 2);
+      return { label: `Raise public trust to ${target}%`, target, reward: { capital: 3 } };
     },
     check: (s, o) => s.res.trust >= o.target,
   },
@@ -132,8 +141,8 @@ function pickFrom(s: GameState, group: Template['group'], week: number) {
 /** Live reading for "at week end" objectives, e.g. "now 312". */
 export function objectiveProgress(s: GameState, o: DailyObjective): string | null {
   switch (o.templateId) {
-    case 'aqi': return `now ${actualAqi(s)}`;
-    case 'district': return `now ${districtAqi(s.air, s.conc, o.param!)}`;
+    case 'aqi': return `now ${Math.round(reductionPct(s))}% below`;
+    case 'district': return `now ${Math.round(districtReduction(s, o.param!))}% below · AQI ${districtAqi(s.air, s.conc, o.param!)}`;
     case 'trust': return `now ${Math.round(s.res.trust)}%`;
     case 'transit': return `now ${Math.round(s.city.traffic.ptShare * 100)}%`;
     case 'congestion': return `now ${s.city.traffic.congestion.toFixed(2)}`;

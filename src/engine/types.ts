@@ -156,6 +156,8 @@ export interface GameStats {
   demolitions: number;
   proposalsDecided: number;
   industryDecisions: number;
+  /** construction the Commissioner paid for (not private developers) */
+  playerProjects: number;
 }
 
 export interface Settings {
@@ -205,6 +207,8 @@ export interface GameState {
   tutorialDone: boolean;
   introDone: boolean;
   tutorialStep: number;
+  /** contextual tips already shown */
+  tipsSeen: string[];
   lastActive: number;
   aqiRenamed: boolean;
   pressureMaxedWeeks: number;

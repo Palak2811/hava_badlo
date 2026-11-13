@@ -243,6 +243,7 @@ export function advanceConstruction(s: GameState) {
     p.built = true;
     changed = true;
     s.stats.projectsCompleted += 1;
+    if (!p.organic) s.stats.playerProjects += 1;
     const d = districtAt(CITY, p.x, p.y);
     addNews(s, 'gov', `Construction Complete: ${PLACEABLE_MAP[p.kind].name} in ${d?.name ?? 'Delhi'}`, 'Ribbon cut, photographs taken, samosas distributed.');
   }

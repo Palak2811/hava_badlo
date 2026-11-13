@@ -1,4 +1,3 @@
-import { aqiBand } from '../../engine/core';
 import type { Sample, Source } from '../../engine/types';
 
 export const SOURCE_META: Record<Source, { label: string; icon: string; color: string }> = {
@@ -10,31 +9,6 @@ export const SOURCE_META: Record<Source, { label: string; icon: string; color: s
   other: { label: 'Other / regional', icon: '🌐', color: '#a855f7' },
 };
 
-export function Gauge({ value, label }: { value: number; label: string }) {
-  const band = aqiBand(value);
-  const pct = Math.min(1, value / 500);
-  const r = 62;
-  const circ = Math.PI * r;
-  return (
-    <div className="gauge">
-      <svg viewBox="0 0 160 96" width="170" height="102" aria-label={`${label} ${value}`}>
-        <defs>
-          <linearGradient id="gg" x1="0" x2="1">
-            <stop offset="0" stopColor="#22c55e" />
-            <stop offset="0.35" stopColor="#eab308" />
-            <stop offset="0.65" stopColor="#f97316" />
-            <stop offset="1" stopColor="#7f1d1d" />
-          </linearGradient>
-        </defs>
-        <path d={`M ${80 - r} 84 A ${r} ${r} 0 0 1 ${80 + r} 84`} fill="none" stroke="var(--track)" strokeWidth="14" strokeLinecap="round" />
-        <path d={`M ${80 - r} 84 A ${r} ${r} 0 0 1 ${80 + r} 84`} fill="none" stroke="url(#gg)" strokeWidth="14" strokeLinecap="round" strokeDasharray={`${circ * pct} ${circ}`} style={{ transition: 'stroke-dasharray .6s ease' }} />
-        <text x="80" y="74" textAnchor="middle" className="gauge-num" fill={band.color}>{value}</text>
-        <text x="80" y="92" textAnchor="middle" className="gauge-label">{band.label}</text>
-      </svg>
-      <span className="gauge-cap">{label}</span>
-    </div>
-  );
-}
 
 export function LineChart({ data, series, max }: { data: Sample[]; series: { key: keyof Sample; label: string; color: string; dash?: boolean }[]; max?: number }) {
   const W = 520, H = 170, P = 28;

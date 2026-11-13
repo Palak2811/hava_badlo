@@ -16,16 +16,6 @@ export function Toasts() {
   );
 }
 
-export function Floaters() {
-  const floaters = useGame((s) => s.floaters);
-  return (
-    <div className="floaters">
-      {floaters.map((f, i) => (
-        <span key={f.id} className="floater" style={{ color: f.color, left: `${20 + ((f.id * 37) % 60)}%`, animationDelay: `${i * 0.03}s` }}>{f.text}</span>
-      ))}
-    </div>
-  );
-}
 
 const COLORS = ['#f43f5e', '#f59e0b', '#22c55e', '#0ea5e9', '#a855f7', '#facc15'];
 

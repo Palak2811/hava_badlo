@@ -1,9 +1,9 @@
 import { create } from 'zustand';
-import { SETTINGS_KEY } from '../config/balance';
+import { BUILDINGS, OPTICS, SETTINGS_KEY } from '../config/balance';
 import { ACHIEVEMENTS } from '../config/content';
 import { EVENT_MAP } from '../config/events';
 import {
-  buyBuilding, claimGrant, phaseOf, doResearch, newGame, resolveEvent, step, executeOptics, type ActionResult,
+  buyBuilding, claimGrant, opticsUnlocked, phaseOf, doResearch, newGame, resolveEvent, step, executeOptics, type ActionResult,
 } from '../engine/core';
 import { applyOffline, load, reset as resetSave, save } from '../engine/save';
 import type { BuildingId, GameState, OfflineSummary, Settings } from '../engine/types';
@@ -82,6 +82,7 @@ interface Store {
   skipTutorial: () => void;
   replayTutorial: () => void;
   finishIntro: () => void;
+  dismissTip: (id: string) => void;
   openEvent: (uid: string | null) => void;
   setSpeed: (sp: 0 | 1 | 2 | 3) => void;
   tickReal: (ticks: number) => void;
@@ -109,13 +110,15 @@ let booted = false;
 const storage = () => (typeof localStorage !== 'undefined' ? localStorage : null);
 
 export const useGame = create<Store>((set, get) => {
-  const mutate = (fn: (s: GameState) => ActionResult, okSfx: 'buy' | 'unlock' | 'click' = 'buy') => {
-    const s = structuredClone(get().game);
+  const mutate = (fn: (s: GameState) => ActionResult, okSfx: 'buy' | 'unlock' | 'click' | 'build' | 'stamp' = 'buy') => {
+    const prev = get().game;
+    const s = structuredClone(prev);
     const before = { ach: s.achievements.length, events: s.events.length };
     const r = fn(s);
     if (r.ok) {
       set({ game: s });
       sound.play(okSfx);
+      celebrate(prev, s);
       get().toast({ kind: 'good', title: r.msg });
       announce(before, s);
       get().persist();
@@ -124,6 +127,32 @@ export const useGame = create<Store>((set, get) => {
       get().toast({ kind: 'bad', title: r.msg });
     }
     return r;
+  };
+
+  /** Celebrate what changed between two states (objectives, construction, unlocks). */
+  const celebrate = (prev: GameState, s: GameState) => {
+    for (const o of s.objectives) {
+      const was = prev.objectives.find((x) => x.id === o.id);
+      if (o.done && was && !was.done) {
+        sound.play('unlock');
+        get().toast({ kind: 'good', title: '✓ Objective complete', body: o.label });
+      }
+    }
+    for (const b of BUILDINGS) {
+      if (s.buildings[b.id] > prev.buildings[b.id]) {
+        sound.play('build');
+        get().toast({ kind: 'good', title: `🏗️ ${b.name} ${prev.buildings[b.id] === 0 ? 'is open' : `upgraded to level ${s.buildings[b.id]}`}` });
+      }
+    }
+    if (s.stats.playerProjects > prev.stats.playerProjects) {
+      sound.play('build');
+      get().toast({ kind: 'good', title: `🏗️ Construction complete`, body: `${s.stats.playerProjects - prev.stats.playerProjects} of your projects finished.` });
+    }
+    const unlocked = (g: GameState) => OPTICS.filter((o) => opticsUnlocked(g, o.id)).length;
+    if (unlocked(s) > unlocked(prev)) {
+      sound.play('unlock');
+      get().toast({ kind: 'info', title: '🎭 New optics card unlocked', body: 'See Administration → Optics cards.' });
+    }
   };
 
   const announce = (before: { ach: number; events: number }, s: GameState) => {
@@ -193,7 +222,7 @@ export const useGame = create<Store>((set, get) => {
       set({ mapMode });
     },
     decide: (uid, approve) => {
-      mutate((s) => decideProposal(s, uid, approve), approve ? 'buy' : 'click');
+      mutate((s) => decideProposal(s, uid, approve), 'stamp');
     },
     repeal: (id) => {
       mutate((s) => repealPolicy(s, id), 'click');
@@ -215,7 +244,7 @@ export const useGame = create<Store>((set, get) => {
       const tool = get().tool;
       if (!tool) return;
       if (tool.type === 'place') {
-        const r = mutate((s) => placeBuilding(s, tool.kind, x, y, tool.relocateFrom), 'buy');
+        const r = mutate((s) => placeBuilding(s, tool.kind, x, y, tool.relocateFrom), 'build');
         if (r.ok && tool.relocateFrom !== undefined) set({ tool: null });
         if (r.ok) get().tutorialEvent('inspect');
       } else if (tool.type === 'road' || tool.type === 'zone') {
@@ -273,7 +302,13 @@ export const useGame = create<Store>((set, get) => {
       get().persist();
     },
     replayTutorial: () => {
-      set({ game: { ...get().game, tutorialDone: false, tutorialStep: 0 }, tab: 'city' });
+      set({ game: { ...get().game, tutorialDone: false, tutorialStep: 0, tipsSeen: [] }, tab: 'city' });
+    },
+    dismissTip: (id) => {
+      const g = get().game;
+      if (g.tipsSeen.includes(id)) return;
+      set({ game: { ...g, tipsSeen: [...g.tipsSeen, id] } });
+      get().persist();
     },
     finishIntro: () => {
       set({ game: { ...get().game, introDone: true, briefingSeen: 1 } });
@@ -287,15 +322,17 @@ export const useGame = create<Store>((set, get) => {
     },
     tickReal: (n) => {
       if (n <= 0) return;
-      const s = structuredClone(get().game);
+      const prev = get().game;
+      const s = structuredClone(prev);
       const before = { ach: s.achievements.length, events: s.events.length, budget: s.res.budget, ended: s.ended, prop: s.proposalsSeen, settled: s.settlement?.week ?? 0 };
       for (let i = 0; i < n; i++) step(s);
       set({ game: s });
       announce(before, s);
+      celebrate(prev, s);
       if (s.settlement && s.settlement.week !== before.settled) {
         const net = s.settlement.net;
         get().float(`${net >= 0 ? '+' : '−'}₹${Math.abs(net).toLocaleString('en-IN')}`, net >= 0 ? 'var(--good)' : 'var(--bad)');
-        sound.play(net >= 0 ? 'buy' : 'error');
+        sound.play(net >= 0 ? 'cash' : 'error');
         set({ weekCard: s.settlement.week });
         if (get().settings.pauseOnWeekEnd && !s.ended) set({ game: { ...get().game, speed: 0 } });
       }
@@ -307,7 +344,7 @@ export const useGame = create<Store>((set, get) => {
         }
       }
       if (s.ended && !before.ended) {
-        sound.play('achievement');
+        sound.play('fanfare');
         get().persist();
       }
     },

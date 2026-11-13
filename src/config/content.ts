@@ -181,10 +181,25 @@ export const TUTORIAL: TutorialStep[] = [
   { id: 'money', target: '.stat-money', gate: 'next', text: 'This is the treasury. Money comes in every week from taxes and the Centre; every facility costs upkeep. Watch the weekly figure.' },
   { id: 'aqi', target: '.stat-aqi', gate: 'next', text: 'And this is the city’s ACTUAL air quality — from independent sensors, not our press office. Lower is better.' },
   { id: 'objectives', target: '.objectives-widget', gate: 'next', text: 'Each week brings objectives. Think of them as suggestions from people who outrank you.' },
-  { id: 'time', target: '.hud-time', gate: 'next', text: 'The clock is ticking — 52 weeks to the election. Pause whenever you need to think, speed up when you’re confident. Chalo, let’s begin!' },
+  { id: 'buildmenu', target: '.nav-item.build', gate: 'next', text: 'The Build menu has everything else: homes, markets, bus stops, parks, roads and zoning. Construction takes weeks, and every building has consequences.' },
+  { id: 'modes', target: '.map-modes', gate: 'next', text: 'Switch the map to Pollution to see each neighbourhood’s air — or Economy to see where the money comes from. Voters judge the air where THEY live.' },
+  { id: 'approvals', target: '.nav-approvals', gate: 'next', text: 'Proposals land in Approvals: factories, malls, sponsors. Tempting money, real consequences — read the “Later” row. Ignore one and it lapses.' },
+  { id: 'pulse', target: '.pulse', gate: 'next', text: 'The City pulse shows residents, jobs, traffic and what private builders want to build. Zoning decides where they can.' },
+  { id: 'time', target: '.hud-time', gate: 'next', text: 'The clock is ticking. Each week the treasury settles automatically; in week 52 Delhi votes on your air, honesty, jobs and books. Pause whenever you need to think. Chalo, let’s begin!' },
 ];
 
 export const ROAD_NAMES: { h: Record<number, string>; v: Record<number, string> } = {
   h: { 9: 'Outer Ring Road', 20: 'Ring Road', 31: 'Mathura Road' },
   v: { 12: 'Pusa Road', 28: 'Janpath', 44: 'Vikas Marg' },
+};
+
+/** One-time contextual tips from the Secretary; conditions live in ui/Tutorial.tsx. */
+export const TIPS: Record<string, string> = {
+  event: 'An event needs your decision — tap the alert at the top. Wait too long and the worst option is chosen for you.',
+  proposal: 'A proposal has arrived in Approvals. Read the “Later” row carefully: the bill often comes afterwards.',
+  settlement: 'That card was your weekly settlement — money arrives and leaves once a week, not every second.',
+  broke: 'Money is tight, Commissioner. Tap the treasury for loans, grants or spending cuts — or approve a development fee.',
+  severe: 'Severe smog. Switch the map to Pollution to see which neighbourhoods suffer most — they vote too.',
+  growth: 'Private builders have started projects on zoned land. Rezone empty plots to steer what gets built — and where the smoke goes.',
+  poll: 'Curious how you would do at the polls? Administration has a live opinion poll and the full scorecard.',
 };

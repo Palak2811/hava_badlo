@@ -382,7 +382,7 @@ export const PRESSURE = {
   maxedDaysForNotice: 2,
 };
 
-export const TRUST = { neutralAqi: 220, scale: 120 };
+export const TRUST = { neutralAqi: 220, scale: 70 };
 
 export const EVENTS_CFG = {
   dailyChance: 0.55,

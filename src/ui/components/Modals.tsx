@@ -1,8 +1,8 @@
 import { useEffect, type ReactNode } from 'react';
-import { CAMPAIGN_PHASES, CAMPAIGN_WEEKS } from '../../config/balance';
-import { ENDINGS, PHASE_BRIEFS } from '../../config/content';
+import { CAMPAIGN_PHASES } from '../../config/balance';
+import { PHASE_BRIEFS } from '../../config/content';
 import { EVENT_MAP, type ChoiceDef } from '../../config/events';
-import { actualAqi, aqiBand, canAfford, weekOf, endingInput, phaseOf } from '../../engine/core';
+import { actualAqi, aqiBand, canAfford, weekOf, phaseOf } from '../../engine/core';
 import { SOURCES, type PhaseReport } from '../../engine/types';
 import { useGame } from '../../state/store';
 import { Icon } from '../icons';
@@ -284,33 +284,3 @@ export function OfflineModal() {
   );
 }
 
-export function EndingModal() {
-  const g = useGame((s) => s.game);
-  const resetGame = useGame((s) => s.resetGame);
-  const sandbox = useGame((s) => s.continueSandbox);
-  if (!g.ended || g.sandbox || g.reportPending) return null;
-  const e = ENDINGS[g.ended];
-  const inp = endingInput(g);
-  return (
-    <Modal className="ending" label={e.title}>
-      <div className="ending-hero" style={{ ['--c' as string]: e.color }}>
-        <span className="ending-art" aria-hidden>{e.art}</span>
-        <small>Term complete · {CAMPAIGN_WEEKS} weeks</small>
-        <h1>{e.title}</h1>
-        <p>{e.subtitle}</p>
-      </div>
-      <p className="memo-text">{e.text}</p>
-      <div className="award"><Icon name="trophy" /> {e.award}</div>
-      <div className="trio four">
-        <div><small>Final AQI</small><b>{Math.round(inp.actualAqi)}</b></div>
-        <div><small>vs doing nothing</small><b>{num(inp.reduction, 1)}%</b></div>
-        <div><small>Public trust</small><b>{num(inp.trust)}%</b></div>
-        <div><small>Committees & reports</small><b>{inp.committees + inp.reports}</b></div>
-      </div>
-      <div className="row-btns">
-        <button className="btn ghost" onClick={sandbox}>Keep playing</button>
-        <button className="btn primary" onClick={resetGame}>Start a new term</button>
-      </div>
-    </Modal>
-  );
-}

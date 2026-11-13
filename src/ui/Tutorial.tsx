@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { SECRETARY, TUTORIAL } from '../config/content';
+import { SECRETARY, TIPS, TUTORIAL } from '../config/content';
+import { actualAqi, weekOf } from '../engine/core';
+import type { GameState } from '../engine/types';
 import { CITY } from '../engine/map';
 import { cityControls } from '../city/controls';
 import { useGame } from '../state/store';
@@ -41,6 +43,38 @@ function useTargetRect(selector: string | null) {
     return () => window.clearInterval(id);
   }, [selector]);
   return rect;
+}
+
+const TIP_WHEN: Record<string, (s: GameState) => boolean> = {
+  event: (s) => s.events.length > 0,
+  proposal: (s) => s.proposals.length > 0,
+  settlement: (s) => s.settlement !== null,
+  broke: (s) => s.res.budget < 3000 && weekOf(s) > 3,
+  severe: (s) => actualAqi(s) >= 400,
+  growth: (s) => s.city.developments > 0,
+  poll: (s) => weekOf(s) >= 14,
+};
+
+/** One-time contextual advice from the Secretary, the first time something new happens. */
+export function Tip() {
+  const g = useGame((s) => s.game);
+  const busy = useGame((s) => !!s.eventOpen || !!s.confirm || s.tab !== 'city' || s.buildOpen || s.showSettings);
+  const dismiss = useGame((s) => s.dismissTip);
+  if (!g.introDone || !g.tutorialDone || g.reportPending || g.ended || busy) return null;
+  const id = Object.keys(TIPS).find((k) => !g.tipsSeen.includes(k) && TIP_WHEN[k]?.(g));
+  if (!id) return null;
+  return (
+    <aside className="secretary tip" role="status">
+      <Avatar />
+      <div className="sec-body">
+        <small>{SECRETARY.name} · a quick tip</small>
+        <p>{TIPS[id]}</p>
+        <div className="sec-actions">
+          <button className="btn primary small" onClick={() => dismiss(id)}>Got it</button>
+        </div>
+      </div>
+    </aside>
+  );
 }
 
 export function Tutorial() {

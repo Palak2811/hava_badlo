@@ -60,7 +60,8 @@ export function computeElection(s: GameState): ElectionResult {
   const playerProjects = s.cityEdits.placed.filter((p) => !p.organic && p.built).length;
   const city: Record<string, number> = {
     trust: s.res.trust / 100,
-    improvement: clamp(reductionPct(s) / 40, 0, 1),
+    // doing nothing = 0.5; making the air worse than doing nothing is punished
+    improvement: clamp(0.5 + reductionPct(s) / 50, 0, 1),
     jobs: 1 - clamp(s.city.unemployment * 4, 0, 1),
     economy: clamp(0.5 + net / 4000, 0, 1) - (s.res.budget < 0 ? 0.3 : 0),
     // only what the Commissioner built — private developers don't count
@@ -78,7 +79,7 @@ export function computeElection(s: GameState): ElectionResult {
     const jobs = 0.7 * city.jobs + 0.3 * localJobs;
     const score = W.trust * city.trust + W.air * air + W.improvement * city.improvement + W.jobs * jobs + W.economy * city.economy +
       W.infrastructure * city.infrastructure + W.reputation * city.reputation + W.objectives * city.objectives;
-    const share = ELECTION.floor + ELECTION.span * score;
+    const share = clamp(50 + ELECTION.span * (score - ELECTION.pivot) + (ELECTION.lean[d.id] ?? 0), ELECTION.minShare, ELECTION.maxShare);
     return { id: d.id, name: d.name, seats: seats[d.id], share, won: share >= 50, aqi, residents: Math.round(s.air.pop[d.id] ?? 0) };
   });
   const totalPop = districts.reduce((t, d) => t + d.residents, 0) || 1;

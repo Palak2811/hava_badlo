@@ -1,5 +1,5 @@
 /** Procedural WebAudio sound — no copyrighted music. A tanpura-like drone plus Raag Bhupali (S R G P D) plucks. */
-type Sfx = 'click' | 'buy' | 'unlock' | 'notify' | 'alert' | 'achievement' | 'error';
+type Sfx = 'click' | 'buy' | 'unlock' | 'notify' | 'alert' | 'achievement' | 'error' | 'build' | 'cash' | 'stamp' | 'fanfare' | 'tick';
 
 class SoundEngine {
   private ctx: AudioContext | null = null;
@@ -72,8 +72,16 @@ class SoundEngine {
       alert: [[330, 0.18, 'square', 0], [262, 0.25, 'square', 0.2]],
       achievement: [[523, 0.1, 'triangle', 0], [659, 0.1, 'triangle', 0.1], [784, 0.1, 'triangle', 0.2], [1047, 0.4, 'triangle', 0.3]],
       error: [[200, 0.15, 'sawtooth', 0]],
+      // hammer taps for construction
+      build: [[180, 0.05, 'square', 0], [180, 0.05, 'square', 0.12], [240, 0.08, 'square', 0.24]],
+      // coins for weekly settlement
+      cash: [[1319, 0.06, 'triangle', 0], [1568, 0.06, 'triangle', 0.07], [2093, 0.14, 'triangle', 0.14]],
+      // rubber stamp on an approval
+      stamp: [[120, 0.08, 'square', 0], [90, 0.12, 'sine', 0.03]],
+      fanfare: [[392, 0.18, 'triangle', 0], [523, 0.18, 'triangle', 0.18], [659, 0.18, 'triangle', 0.36], [784, 0.5, 'triangle', 0.54]],
+      tick: [[880, 0.04, 'sine', 0]],
     };
-    for (const [f, d, t, w] of notes[s]) this.tone(f, d, t, w, s === 'alert' || s === 'error' ? 0.25 : 0.5);
+    for (const [f, d, t, w] of notes[s]) this.tone(f, d, t, w, s === 'alert' || s === 'error' || s === 'stamp' ? 0.25 : 0.5);
   }
 
   private startMusic() {

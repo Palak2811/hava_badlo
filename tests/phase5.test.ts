@@ -1,10 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { TICKS_PER_WEEK } from '../src/config/balance';
 import { ELECTION } from '../src/config/election';
-import { districtAqi } from '../src/engine/air';
 import { buyBuilding, finishAllConstruction, newGame, rates, step } from '../src/engine/core';
 import { allocateSeats, computeElection } from '../src/engine/election';
-import { OBJECTIVES, evaluateObjectives, rollWeeklyObjectives } from '../src/engine/objectives';
+import { OBJECTIVES, districtReduction, evaluateObjectives, rollWeeklyObjectives } from '../src/engine/objectives';
 import { decideProposal, propose } from '../src/engine/approvals';
 import { DISTRICTS } from '../src/engine/map';
 import { load, save, type StorageLike } from '../src/engine/save';
@@ -73,10 +72,10 @@ describe('objectives', () => {
     const o = s.objectives.find((x) => x.templateId === 'district')!;
     expect(o).toBeDefined();
     expect(DISTRICTS.map((d) => d.id)).toContain(o.param);
-    expect(districtAqi(s.air, s.conc, o.param!)).toBeGreaterThan(o.target);
+    expect(districtReduction(s, o.param!)).toBeLessThan(o.target);
     evaluateObjectives(s, true);
     expect(o.done).toBe(false);
-    s.conc *= 0.3;
+    s.conc *= 0.5; // real reductions, not weather: the baseline stays where it was
     evaluateObjectives(s, true);
     expect(o.done).toBe(true);
   });

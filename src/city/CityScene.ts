@@ -84,6 +84,7 @@ export class CityScene extends Phaser.Scene {
   private modeLabels!: Phaser.GameObjects.Container;
   private modeT = 0;
   private modeShown: MapMode = 'normal';
+  private builtSeen: Set<number> | null = null;
   private world!: Phaser.GameObjects.Container;
   private ground!: Phaser.GameObjects.Graphics;
   private blds!: Phaser.GameObjects.Graphics;
@@ -687,6 +688,23 @@ export class CityScene extends Phaser.Scene {
     }
   }
 
+  /** A ring bursts from each of the player's buildings when construction completes. */
+  private pulseCompletions(s: GameState) {
+    const built = new Set(s.cityEdits.placed.filter((p) => p.built && !p.organic).map((p) => p.uid));
+    if (this.builtSeen && this.bridge.animations()) {
+      for (const p of s.cityEdits.placed) {
+        if (!built.has(p.uid) || this.builtSeen.has(p.uid)) continue;
+        const cx = (p.x + p.w / 2) * CELL, cy = (p.y + p.h / 2) * CELL;
+        const ring = this.add.circle(cx, cy, 20, 0xffffff, 0).setStrokeStyle(4, 0x2f9e5b, 1);
+        const star = this.add.text(cx, cy - 10, '✨', { fontSize: '26px' }).setOrigin(0.5);
+        this.world.add([ring, star]);
+        this.tweens.add({ targets: ring, radius: 90, alpha: 0, duration: 800, onComplete: () => ring.destroy() });
+        this.tweens.add({ targets: star, y: cy - 60, alpha: 0, duration: 1100, onComplete: () => star.destroy() });
+      }
+    }
+    this.builtSeen = built;
+  }
+
   /* ------------------------------------------------------------ map modes */
 
   /** Pollution heatmap or economy view, drawn per neighbourhood with labels. */
@@ -951,6 +969,7 @@ export class CityScene extends Phaser.Scene {
     if (mapChanged) {
       this.map = nextMap;
       this.collectRoads();
+      this.pulseCompletions(s);
     }
     const b = Math.round(haze * 8);
     if (b !== this.bucket || mapChanged) {

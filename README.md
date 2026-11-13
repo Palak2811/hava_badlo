@@ -9,7 +9,7 @@ A satirical idle / city-management game set in Delhi. **52 weeks. One city. One 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 123 unit tests (Vitest)
+npm test           # 137 tests (Vitest), incl. full 52-week balance playtests
 npm run lint
 npm run typecheck
 npm run build      # production build into dist/
@@ -47,7 +47,10 @@ src/
   city/           ← Phaser 3 scene (lazy-loaded): renders the grid city; pan, wheel/pinch zoom, picking, road-following traffic
   audio/sound.ts  ← procedural WebAudio SFX plus a tanpura drone and Raag Bhupali music (no audio files)
   ui/             ← map-first React UI: opening story, Secretary tutorial, HUD, inspection panels, drawers, decisions, reports
-tests/engine.test.ts
+tests/
+  sim/strategies.ts ← scripted players (idle, green, PR, balanced, builder-only, industrialist)
+  balance.test.ts   ← full-campaign balance regression
+  persistence.test.ts ← save/load determinism, robustness, performance
 ```
 
 ### Pollution model (illustrative, not official data)
@@ -66,7 +69,16 @@ tests/engine.test.ts
 - [x] Phase 3: residents & migration, jobs & unemployment, RCI demand, organic growth, traffic & public transport model
 - [x] Phase 4: neighbourhood AQI (population-weighted exposure), pollution & economy map modes, revenue streams, finance & recovery, pending approvals, policies, delayed consequences
 - [x] Phase 5: weekly settlement ledger & card, objectives tied to air/trust/revenue/transit/traffic/approvals, opinion poll, 70-seat election with constituency results and legacy title
-- [ ] Phase 6: polish & balancing
+- [x] Phase 6: balance tuned with automated full-term playtests, save/load determinism, feedback & sounds, extended tutorial and contextual tips
+
+## Balance (automated playtests, seed 7)
+
+| Strategy | Vote | Seats | Outcome |
+|---|---|---|---|
+| Green governance | ~65% | 70 | Wins |
+| Balanced | ~60–63% | 70 | Wins |
+| Builder, ignores people | ~49–50% | 29–42 | Coin flip |
+| Idle / PR spin / industrialist | ~32–36% | 0 | Loses |
 
 ## Notes and limitations
 

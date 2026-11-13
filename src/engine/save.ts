@@ -56,6 +56,7 @@ export function validate(raw: unknown): GameState | null {
   const c = merged.city as unknown as Record<string, unknown> | undefined;
   if (!c || !isNum(c.population) || (c.population as number) <= 0 || typeof c.demand !== 'object') merged.city = initialCity(merged.mapStats);
   if (!Array.isArray(merged.proposals)) merged.proposals = [];
+  if (!Array.isArray(merged.tipsSeen)) merged.tipsSeen = [];
   if (!merged.ledger || !isNum(merged.ledger.income) || !isNum(merged.ledger.expenses)) merged.ledger = { income: 0, expenses: 0 };
   const needSnap = !merged.weekSnap || !isNum(merged.weekSnap.aqi);
   if (merged.settlement === undefined) merged.settlement = null;

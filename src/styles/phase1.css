@@ -108,3 +108,6 @@ li.done .tick { background: var(--good); color: #fff; box-shadow: none; }
   .file { padding: var(--s5); }
   .secretary { bottom: calc(var(--nav-h) + 8px); }
 }
+
+.secretary.tip { width: min(460px, calc(100vw - 24px)); padding: var(--s3); }
+.secretary.tip .avatar { width: 48px; height: 48px; }
