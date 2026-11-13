@@ -1,6 +1,8 @@
 import { CAMPAIGN_WEEKS, OFFLINE, SAVE_KEY, SAVE_VERSION, TICKS_PER_WEEK } from '../config/balance';
 import { BUILDINGS } from '../config/balance';
 import { newGame, step } from './core';
+import { liveMap } from './build';
+import { computeMapStats } from './map';
 import type { GameState, OfflineSummary } from './types';
 
 export interface StorageLike {
@@ -42,6 +44,13 @@ export function validate(raw: unknown): GameState | null {
   for (const k of ['research', 'effects', 'events', 'eventHistory', 'news', 'history', 'weekly', 'objectives', 'achievements', 'stageObjectivesDone', 'committeesPending', 'phaseReports'] as const) {
     if (!Array.isArray(merged[k])) (merged as unknown as Record<string, unknown>)[k] = (base as unknown as Record<string, unknown>)[k];
   }
+  const ce = merged.cityEdits as unknown as Record<string, unknown> | undefined;
+  if (!ce || !Array.isArray(ce.placed) || !Array.isArray(ce.demolished) || !Array.isArray(ce.roads) || typeof ce.zones !== 'object' || !isNum(ce.nextUid)) {
+    merged.cityEdits = base.cityEdits;
+  }
+  if (!merged.upgrading || typeof merged.upgrading !== 'object') merged.upgrading = {};
+  // derived data is never trusted from disk
+  merged.mapStats = computeMapStats(liveMap(merged));
   merged.version = SAVE_VERSION;
   return merged;
 }

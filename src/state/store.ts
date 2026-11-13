@@ -7,11 +7,27 @@ import {
 } from '../engine/core';
 import { applyOffline, load, reset as resetSave, save } from '../engine/save';
 import type { BuildingId, GameState, OfflineSummary, Settings } from '../engine/types';
-import type { Pick } from '../engine/map';
+import { KIND_INFO, buildMap, type CityMap, type Pick } from '../engine/map';
+import { buildRoad, demolish, demolitionInfo, placeBuilding, zoneArea } from '../engine/build';
+import type { Placeable, Zone } from '../engine/types';
 import { TUTORIAL } from '../config/content';
 import { sound } from '../audio/sound';
 
 export type Tab = 'city' | 'research' | 'news' | 'admin';
+export type Tool =
+  | { type: 'place'; kind: Placeable; relocateFrom?: number }
+  | { type: 'road'; start?: [number, number] }
+  | { type: 'zone'; zone: Zone | 'clear'; start?: [number, number] }
+  | { type: 'demolish' };
+
+/** Live map cache for the UI (the engine rebuilds its own when it needs one). */
+let mapCache: { key: string; map: CityMap } | null = null;
+export function getLiveMap(g: GameState): CityMap {
+  const e = g.cityEdits;
+  const key = `${g.seed}|${g.mapVersion}|${e.placed.length}|${e.roads.length}|${e.demolished.length}`;
+  if (!mapCache || mapCache.key !== key) mapCache = { key, map: buildMap(e) };
+  return mapCache.map;
+}
 export interface Toast { id: number; kind: 'good' | 'bad' | 'info' | 'achievement'; title: string; body?: string }
 
 const DEFAULT_SETTINGS: Settings = { sound: true, music: false, musicVolume: 0.4, sfxVolume: 0.6, animations: true };
@@ -31,6 +47,9 @@ interface Store {
   tab: Tab;
   selected: BuildingId | null;
   inspect: Pick | null;
+  tool: Tool | null;
+  buildOpen: boolean;
+  hover: { x: number; y: number } | null;
   eventOpen: string | null;
   toasts: Toast[];
   offline: OfflineSummary | null;
@@ -42,6 +61,11 @@ interface Store {
   setTab: (t: Tab) => void;
   select: (b: BuildingId | null) => void;
   onPick: (p: Pick | null) => void;
+  setTool: (t: Tool | null) => void;
+  toggleBuild: (open?: boolean) => void;
+  setHover: (h: { x: number; y: number } | null) => void;
+  toolClick: (x: number, y: number) => void;
+  askDemolish: (id: number) => void;
   tutorialEvent: (kind: 'pan' | 'zoom' | 'inspect') => void;
   advanceTutorial: () => void;
   skipTutorial: () => void;
@@ -111,6 +135,9 @@ export const useGame = create<Store>((set, get) => {
     tab: 'city',
     selected: null,
     inspect: null,
+    tool: null,
+    buildOpen: false,
+    hover: null,
     eventOpen: null,
     toasts: [],
     offline: null,
@@ -138,13 +165,69 @@ export const useGame = create<Store>((set, get) => {
     },
     setTab: (tab) => {
       sound.play('click');
-      set({ tab });
+      set({ tab, buildOpen: false, tool: null });
     },
     select: (selected) => set({ selected, inspect: null }),
     onPick: (p) => {
       if (p?.type === 'plot') set({ selected: p.id, inspect: null });
       else set({ inspect: p, selected: null });
       if (p) get().tutorialEvent('inspect');
+    },
+    setTool: (tool) => set({ tool, selected: null, inspect: null }),
+    toggleBuild: (open) => {
+      const next = open ?? !get().buildOpen;
+      sound.play('click');
+      set({ buildOpen: next, tool: next ? get().tool : null, tab: 'city' });
+    },
+    setHover: (hover) => {
+      const h = get().hover;
+      if (h?.x === hover?.x && h?.y === hover?.y) return;
+      set({ hover });
+    },
+    toolClick: (x, y) => {
+      const tool = get().tool;
+      if (!tool) return;
+      if (tool.type === 'place') {
+        const r = mutate((s) => placeBuilding(s, tool.kind, x, y, tool.relocateFrom), 'buy');
+        if (r.ok && tool.relocateFrom !== undefined) set({ tool: null });
+        if (r.ok) get().tutorialEvent('inspect');
+      } else if (tool.type === 'road' || tool.type === 'zone') {
+        if (!tool.start) {
+          sound.play('click');
+          set({ tool: { ...tool, start: [x, y] } });
+          return;
+        }
+        const [sx, sy] = tool.start;
+        const r = tool.type === 'road'
+          ? mutate((s) => buildRoad(s, sx, sy, x, y), 'buy')
+          : mutate((s) => zoneArea(s, sx, sy, x, y, tool.zone), 'click');
+        set({ tool: { ...tool, start: r.ok ? undefined : tool.start } });
+      } else if (tool.type === 'demolish') {
+        const b = getLiveMap(get().game).owner[y * getLiveMap(get().game).cols + x];
+        if (b >= 0) get().askDemolish(b);
+      }
+    },
+    askDemolish: (id) => {
+      const g = get().game;
+      const m = getLiveMap(g);
+      const info = demolitionInfo(g, m, id);
+      const b = m.buildings[id];
+      if (!info.allowed) {
+        get().toast({ kind: 'bad', title: info.reason ?? 'Cannot demolish' });
+        return;
+      }
+      const label = KIND_INFO[b.kind].label.toLowerCase();
+      const effects = Object.entries(info.deltas).map(([k, v]) => `${k} ${(v as number) > 0 ? '+' : ''}${v}`).join(', ');
+      get().askConfirm({
+        title: info.cancel ? 'Cancel construction?' : `Demolish this ${label}?`,
+        body: info.cancel
+          ? `You will recover ₹${info.refund.toLocaleString('en-IN')} of the cost.`
+          : `Compensation: ₹${info.cost.toLocaleString('en-IN')}. ${info.note}${effects ? ` Effects: ${effects}.` : ''}`,
+        onYes: () => {
+          const r = mutate((s) => demolish(s, id), 'click');
+          if (r.ok) set({ inspect: null });
+        },
+      });
     },
     tutorialEvent: (kind) => {
       const g = get().game;
@@ -190,7 +273,7 @@ export const useGame = create<Store>((set, get) => {
     buy: (id) => {
       const r = mutate((s) => buyBuilding(s, id), 'buy');
       const g = get().game;
-      if (r.ok && !g.tutorialDone && TUTORIAL[g.tutorialStep]?.gate === 'build-monitor' && g.buildings.monitor > 0) {
+      if (r.ok && !g.tutorialDone && TUTORIAL[g.tutorialStep]?.gate === 'build-monitor' && (g.buildings.monitor > 0 || g.upgrading.monitor)) {
         set({ selected: null });
         get().advanceTutorial();
       }
@@ -263,4 +346,8 @@ export const useGame = create<Store>((set, get) => {
   };
 });
 
-if (import.meta.env.DEV && typeof window !== 'undefined') (window as unknown as { __hb: typeof useGame }).__hb = useGame;
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  const w = window as unknown as { __hb: typeof useGame; __hbMap: typeof getLiveMap };
+  w.__hb = useGame;
+  w.__hbMap = getLiveMap;
+}

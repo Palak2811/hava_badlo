@@ -34,7 +34,7 @@ export interface ObjectiveTemplate {
 }
 
 export const OBJECTIVE_TEMPLATES: ObjectiveTemplate[] = [
-  { id: 'build', label: (t) => `Buy or upgrade ${t} building${t > 1 ? 's' : ''}`, metric: (s) => s.stats.buildingsBought + s.stats.upgradesBought, target: (d) => (d < 14 ? 1 : 2), reward: (d) => ({ budget: 800 + d * 40 }) },
+  { id: 'build', label: (t) => `Complete ${t} construction project${t > 1 ? 's' : ''}`, metric: (s) => s.stats.buildingsBought + s.stats.upgradesBought + s.stats.projectsCompleted, target: (d) => (d < 14 ? 1 : 2), reward: (d) => ({ budget: 800 + d * 40 }) },
   { id: 'research', label: () => 'Complete a research project', metric: (s) => s.research.length, target: () => 1, reward: () => ({ rp: 20 }) },
   { id: 'events', label: (t) => `Handle ${t} event${t > 1 ? 's' : ''}`, metric: (s) => s.stats.eventsHandled, target: (d) => (d < 20 ? 1 : 2), reward: (d) => ({ capital: 2 + Math.floor(d / 15) }) },
   { id: 'cac', label: (t) => `Earn ${t} Clean Air Credits`, metric: (s) => s.stats.cacEarned, target: (d) => Math.max(2, Math.round(d / 5)), reward: () => ({ trust: 2, budget: 600 }) },
@@ -196,7 +196,7 @@ export const TUTORIAL: TutorialStep[] = [
   { id: 'pan', target: null, gate: 'pan', text: 'This is our Delhi — twelve neighbourhoods, half a million problems. Drag the map to look around.' },
   { id: 'zoom', target: '.zoom-ctrl', gate: 'zoom', text: 'Scroll your mouse wheel, pinch, or use these buttons to zoom in and out.' },
   { id: 'inspect', target: null, gate: 'inspect', text: 'Tap any building, road or open patch of land to inspect it. Every neighbourhood has its own people, jobs and problems.' },
-  { id: 'build', target: null, gate: 'build-monitor', focus: 'monitor', text: 'See the dashed plot in Connaught Place? That’s ours. Tap it and build an AQI Monitoring Centre — we can’t fix what we can’t measure.' },
+  { id: 'build', target: null, gate: 'build-monitor', focus: 'monitor', text: 'See the dashed plot in Connaught Place? That’s ours. Tap it and build an AQI Monitoring Centre — we can’t fix what we can’t measure. Construction takes about a week.' },
   { id: 'money', target: '.stat-money', gate: 'next', text: 'This is the treasury. Money comes in every week from taxes and the Centre; every facility costs upkeep. Watch the weekly figure.' },
   { id: 'aqi', target: '.stat-aqi', gate: 'next', text: 'And this is the city’s ACTUAL air quality — from independent sensors, not our press office. Lower is better.' },
   { id: 'objectives', target: '.objectives-widget', gate: 'next', text: 'Each week brings objectives. Think of them as suggestions from people who outrank you.' },

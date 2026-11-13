@@ -2,8 +2,11 @@ import Phaser from 'phaser';
 import { BUILDINGS } from '../config/balance';
 import { actualAqi, seasonOf, weekOf, weekProgress } from '../engine/core';
 import {
-  CELL, CITY, COLS, ROWS, buildingAt, districtAt, idx, isRoad, plotAt, roadNeighbours, tileAt, type MapBuilding, type Pick,
+  CELL, CITY, COLS, ROWS, buildingAt, districtAt, idx, isRoad, plotAt, roadNeighbours, tileAt, zoneAt, type CityMap, type MapBuilding, type Pick,
 } from '../engine/map';
+import { checkPlacement, checkRoad, demolitionInfo, roadPath, zoneTiles } from '../engine/build';
+import { PLACEABLE_MAP, ZONE_INFO } from '../config/build';
+import type { Tool } from '../state/store';
 import type { BuildingId, GameState } from '../engine/types';
 import { cityControls } from './controls';
 
@@ -15,6 +18,10 @@ import { cityControls } from './controls';
 
 export interface CityBridge {
   getState: () => GameState;
+  getMap: () => CityMap;
+  getTool: () => Tool | null;
+  onToolClick: (x: number, y: number) => void;
+  onHover: (t: { x: number; y: number } | null) => void;
   getHighlight: () => Pick | null;
   onPick: (p: Pick | null) => void;
   onCamera: (kind: 'pan' | 'zoom') => void;
@@ -64,6 +71,9 @@ interface Vehicle { obj: Phaser.GameObjects.Container; fx: number; fy: number; t
 
 export class CityScene extends Phaser.Scene {
   private bridge!: CityBridge;
+  private map: CityMap = CITY;
+  private zoneLayer!: Phaser.GameObjects.Graphics;
+  private toolKey = '';
   private world!: Phaser.GameObjects.Container;
   private ground!: Phaser.GameObjects.Graphics;
   private blds!: Phaser.GameObjects.Graphics;
@@ -109,18 +119,20 @@ export class CityScene extends Phaser.Scene {
     g.generateTexture('drop', 2, 9);
     g.destroy();
 
-    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (isRoad(CITY.tiles[idx(x, y)])) this.roadTiles.push([x, y]);
+    this.map = this.bridge.getMap();
+    this.collectRoads();
 
     this.world = this.add.container(0, 0);
     this.ground = this.add.graphics();
     this.blds = this.add.graphics();
     this.trees = this.add.graphics();
+    this.zoneLayer = this.add.graphics();
     this.traffic = this.add.container(0, 0);
     this.plotLayer = this.add.container(0, 0);
     this.overlay = this.add.graphics();
     this.smoke = this.add.particles(0, 0, 'puff', { lifespan: 4200, speedX: { min: 6, max: 22 }, speedY: { min: -26, max: -10 }, scale: { start: 0.5, end: 2.4 }, alpha: { start: 0.45, end: 0 }, tint: 0x7a7670, frequency: 140 });
     this.dust = this.add.particles(0, 0, 'puff', { lifespan: 2600, speedX: { min: -10, max: 14 }, speedY: { min: -12, max: -2 }, scale: { start: 0.4, end: 1.6 }, alpha: { start: 0.4, end: 0 }, tint: 0xcfb27c, frequency: 260 });
-    this.world.add([this.ground, this.blds, this.trees, this.traffic, this.plotLayer, this.smoke, this.dust, this.overlay]);
+    this.world.add([this.ground, this.zoneLayer, this.blds, this.trees, this.traffic, this.plotLayer, this.smoke, this.dust, this.overlay]);
 
     this.haze = this.add.rectangle(0, 0, 10, 10, 0xa59c87, 0).setOrigin(0);
     this.smog = this.add.particles(0, 0, 'puff', { lifespan: 10000, speedX: { min: -6, max: 10 }, speedY: { min: -3, max: 3 }, scale: { start: 3, end: 6 }, alpha: { start: 0.35, end: 0 }, tint: 0xb3a88f, frequency: 160 });
@@ -189,6 +201,7 @@ export class CityScene extends Phaser.Scene {
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
       const wp = cam.getWorldPoint(p.x, p.y);
       this.hover = { x: Math.floor(wp.x / CELL), y: Math.floor(wp.y / CELL) };
+      this.bridge.onHover(this.hover);
       const p1 = this.input.pointer1, p2 = this.input.pointer2;
       if (p1.isDown && p2.isDown) {
         const d = Phaser.Math.Distance.Between(p1.x, p1.y, p2.x, p2.y);
@@ -212,20 +225,47 @@ export class CityScene extends Phaser.Scene {
       if (!this.input.pointer1.isDown && !this.input.pointer2.isDown) this.drag = null;
       if (moved) return;
       const wp = cam.getWorldPoint(p.x, p.y);
-      this.bridge.onPick(this.pick(Math.floor(wp.x / CELL), Math.floor(wp.y / CELL)));
+      const tx = Math.floor(wp.x / CELL), ty = Math.floor(wp.y / CELL);
+      this.hover = { x: tx, y: ty };
+      this.bridge.onHover(this.hover);
+      if (this.bridge.getTool()) this.bridge.onToolClick(tx, ty);
+      else this.bridge.onPick(this.pick(tx, ty));
     });
-    this.input.on('gameout', () => (this.hover = null));
+    this.input.on('gameout', () => {
+      this.hover = null;
+      this.bridge.onHover(null);
+    });
   }
 
   private pick(x: number, y: number): Pick | null {
-    const plot = plotAt(CITY, x, y);
+    const plot = plotAt(this.map, x, y);
     if (plot) return { type: 'plot', id: plot };
-    const b = buildingAt(CITY, x, y);
+    const b = buildingAt(this.map, x, y);
     if (b) return { type: 'building', id: b.id };
-    if (isRoad(tileAt(CITY, x, y))) return { type: 'road', x, y };
-    const d = districtAt(CITY, x, y);
-    if (d && tileAt(CITY, x, y) !== 'water') return { type: 'district', id: d.id, x, y };
+    if (isRoad(tileAt(this.map, x, y))) return { type: 'road', x, y };
+    const d = districtAt(this.map, x, y);
+    if (d && tileAt(this.map, x, y) !== 'water') return { type: 'district', id: d.id, x, y };
     return null;
+  }
+
+  private collectRoads() {
+    this.roadTiles = [];
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (isRoad(this.map.tiles[idx(x, y)])) this.roadTiles.push([x, y]);
+  }
+
+  /** Tints land by zone while a building tool is active. */
+  private drawZones(show: boolean) {
+    const g = this.zoneLayer;
+    g.clear();
+    if (!show) return;
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+      if (this.map.tiles[idx(x, y)] !== 'grass') continue;
+      const z = zoneAt(this.map, x, y);
+      if (!z) continue;
+      const designated = this.map.zones[String(idx(x, y))] !== undefined;
+      g.fillStyle(ZONE_INFO[z].color, designated ? 0.45 : 0.25);
+      g.fillRoundedRect(x * CELL + 3, y * CELL + 3, CELL - 6, CELL - 6, 6);
+    }
   }
 
   /* ------------------------------------------------------------ static drawing */
@@ -238,26 +278,31 @@ export class CityScene extends Phaser.Scene {
     g.fillRect(-CELL * 4, -CELL * 4, WW + CELL * 8, WH + CELL * 8);
     g.fillStyle(p.water, 1);
     for (let y = -3; y < ROWS + 3; y++) {
-      const rx = CITY.riverX[Math.max(0, Math.min(ROWS - 1, y))];
+      const rx = this.map.riverX[Math.max(0, Math.min(ROWS - 1, y))];
       g.fillRect(rx * CELL - 6, y * CELL, WW + CELL * 4 - rx * CELL, CELL + 1);
     }
     g.fillStyle(p.waterDeep, 1);
     for (let y = -3; y < ROWS + 3; y++) {
-      const rx = CITY.riverX[Math.max(0, Math.min(ROWS - 1, y))];
+      const rx = this.map.riverX[Math.max(0, Math.min(ROWS - 1, y))];
       g.fillRect(rx * CELL + 34, y * CELL, 70, CELL + 1);
     }
     for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-      const t = CITY.tiles[idx(x, y)];
+      const t = this.map.tiles[idx(x, y)];
       if (t === 'park') {
         g.fillStyle(p.park, 1);
         g.fillRect(x * CELL, y * CELL, CELL + 1, CELL + 1);
       } else if (t === 'grass') {
         g.fillStyle(p.grass, 1);
         g.fillRoundedRect(x * CELL + 2, y * CELL + 2, CELL - 4, CELL - 4, 6);
+      } else if (t === 'roadwork') {
+        g.fillStyle(0xd9c49a, 1);
+        g.fillRect(x * CELL + 4, y * CELL + 4, CELL - 8, CELL - 8);
+        g.fillStyle(0xf2a541, 1);
+        for (let k = 0; k < 4; k++) g.fillRect(x * CELL + 6 + k * 8, y * CELL + 6, 4, CELL - 12);
       }
     }
     for (const [x, y] of this.roadTiles) {
-      const t = CITY.tiles[idx(x, y)];
+      const t = this.map.tiles[idx(x, y)];
       const cx = x * CELL + CELL / 2, cy = y * CELL + CELL / 2;
       if (t === 'arterial' || t === 'bridge') {
         g.fillStyle(p.road, 1);
@@ -266,7 +311,7 @@ export class CityScene extends Phaser.Scene {
         const w = 22;
         g.fillStyle(p.street, 1);
         g.fillRect(cx - w / 2, cy - w / 2, w, w);
-        for (const [nx, ny] of roadNeighbours(CITY, x, y)) {
+        for (const [nx, ny] of roadNeighbours(this.map, x, y)) {
           if (nx !== x) g.fillRect(Math.min(cx, nx * CELL + CELL / 2), cy - w / 2, CELL / 2 + 1, w);
           else g.fillRect(cx - w / 2, Math.min(cy, ny * CELL + CELL / 2), w, CELL / 2 + 1);
         }
@@ -274,13 +319,13 @@ export class CityScene extends Phaser.Scene {
     }
     g.fillStyle(p.lane, 0.6);
     for (const [x, y] of this.roadTiles) {
-      if (CITY.tiles[idx(x, y)] === 'street') continue;
-      const horiz = isRoad(tileAt(CITY, x - 1, y)) && isRoad(tileAt(CITY, x + 1, y));
-      const vert = isRoad(tileAt(CITY, x, y - 1)) && isRoad(tileAt(CITY, x, y + 1));
+      if (this.map.tiles[idx(x, y)] === 'street') continue;
+      const horiz = isRoad(tileAt(this.map, x - 1, y)) && isRoad(tileAt(this.map, x + 1, y));
+      const vert = isRoad(tileAt(this.map, x, y - 1)) && isRoad(tileAt(this.map, x, y + 1));
       if (horiz && !vert) g.fillRect(x * CELL + 10, y * CELL + CELL / 2 - 1, 20, 2);
       else if (vert && !horiz) g.fillRect(x * CELL + CELL / 2 - 1, y * CELL + 10, 2, 20);
     }
-    for (const s of CITY.busStops) {
+    for (const s of this.map.busStops) {
       g.fillStyle(0x2563eb, 1);
       g.fillRoundedRect(s.x * CELL + 3, s.y * CELL + 3, 9, 9, 2);
       g.fillStyle(0xffffff, 1);
@@ -291,9 +336,9 @@ export class CityScene extends Phaser.Scene {
     b.clear();
     this.smoke.clearEmitZones?.();
     this.dust.clearEmitZones?.();
-    for (const m of CITY.buildings) this.drawBuilding(b, p, m);
+    for (const m of this.map.buildings) this.drawBuilding(b, p, m);
 
-    for (const l of CITY.metro.lines) {
+    for (const l of this.map.metro.lines) {
       const horiz = l.y1 === l.y2;
       b.fillStyle(0x000000, 0.12);
       if (horiz) b.fillRect(l.x1 * CELL, l.y1 * CELL + 13, (l.x2 - l.x1) * CELL, 8);
@@ -302,7 +347,7 @@ export class CityScene extends Phaser.Scene {
       if (horiz) b.fillRect(l.x1 * CELL, l.y1 * CELL + 9, (l.x2 - l.x1) * CELL, 7);
       else b.fillRect(l.x1 * CELL + 9, l.y1 * CELL, 7, (l.y2 - l.y1 + 1) * CELL);
     }
-    for (const s of CITY.metro.stations) {
+    for (const s of this.map.metro.stations) {
       const cx = s.x * CELL + CELL / 2, cy = s.y * CELL + CELL / 2;
       b.fillStyle(0x000000, 0.15);
       b.fillRoundedRect(cx - 26, cy - 14, 56, 30, 9);
@@ -325,7 +370,55 @@ export class CityScene extends Phaser.Scene {
       g.fillStyle(0x000000, 0.1);
       g.fillRoundedRect(bx + 3, by + 4, bw, bh, 6);
     };
+    if (m.removed) return;
+    if (m.progress) {
+      g.fillStyle(p.sand, 1);
+      g.fillRoundedRect(bx, by, bw, bh, 6);
+      g.lineStyle(2, 0xf2a541, 1);
+      g.strokeRoundedRect(bx, by, bw, bh, 6);
+      g.fillStyle(0xf2a541, 0.9);
+      g.fillRect(bx + bw - 12, by + 6, 4, bh - 12);
+      g.fillRect(bx + 6, by + 6, bw - 12, 3);
+      g.fillStyle(0xcfb27c, 1);
+      g.fillCircle(bx + 12, by + bh - 12, 7);
+      this.dust.addEmitZone({ type: 'random', source: new Phaser.Geom.Rectangle(bx, by, bw, bh), quantity: 1 } as never);
+      return;
+    }
     switch (m.kind) {
+      case 'forest': {
+        g.fillStyle(p.park, 1);
+        g.fillRoundedRect(x + 2, y + 2, w - 4, h - 4, 10);
+        for (let i = 0; i < 14; i++) {
+          const tx = bx + 6 + hash(m.seed + i) * (bw - 12), ty = by + 6 + hash(m.seed * 3 + i) * (bh - 12);
+          g.fillStyle(p.treeDark, 1);
+          g.fillCircle(tx + 2, ty + 2, 11);
+          g.fillStyle(p.tree, 1);
+          g.fillCircle(tx, ty, 11);
+        }
+        break;
+      }
+      case 'parking': {
+        shadow();
+        g.fillStyle(0xb8bec7, 1);
+        g.fillRoundedRect(bx, by, bw, bh, 6);
+        g.fillStyle(0xffffff, 0.7);
+        for (let k = 8; k < bw - 6; k += 12) g.fillRect(bx + k, by + 6, 2, bh / 2 - 10);
+        g.fillStyle(0x2563eb, 1);
+        g.fillRoundedRect(bx + bw / 2 - 9, by + bh - 24, 18, 18, 4);
+        g.fillStyle(0xffffff, 1);
+        g.fillRect(bx + bw / 2 - 3, by + bh - 20, 3, 11);
+        g.fillRect(bx + bw / 2 - 3, by + bh - 20, 7, 3);
+        g.fillRect(bx + bw / 2 - 3, by + bh - 15, 7, 3);
+        g.fillRect(bx + bw / 2 + 2, by + bh - 20, 2, 8);
+        break;
+      }
+      case 'busstop': {
+        g.fillStyle(0x2563eb, 1);
+        g.fillRoundedRect(bx + 4, by + bh / 2 - 6, bw - 8, 12, 4);
+        g.fillStyle(0xffffff, 1);
+        g.fillRect(bx + 8, by + bh / 2 - 2, bw - 16, 4);
+        break;
+      }
       case 'house': {
         shadow();
         g.fillStyle(p.houses[Math.floor(r * p.houses.length)], 1);
@@ -473,11 +566,11 @@ export class CityScene extends Phaser.Scene {
     };
     const density = 0.35 + s.buildings.greenery * 0.15 + (1 - haze) * 0.1;
     for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
-      const t = CITY.tiles[idx(x, y)];
+      const t = this.map.tiles[idx(x, y)];
       const h = hash(x * 131 + y * 17);
       if (t === 'park') {
-        const o = CITY.owner[idx(x, y)];
-        if (o >= 0 && CITY.buildings[o].kind === 'monument') continue;
+        const o = this.map.owner[idx(x, y)];
+        if (o >= 0 && this.map.buildings[o].kind === 'monument') continue;
         if (h < 0.55 + s.buildings.greenery * 0.1) tree(x * CELL + 8 + h * 24, y * CELL + 10 + hash(h) * 20, 8 + h * 5);
       } else if (t === 'grass' && h < density) {
         tree(x * CELL + 10 + h * 20, y * CELL + 12 + hash(h * 3) * 16, 7 + h * 3);
@@ -491,12 +584,22 @@ export class CityScene extends Phaser.Scene {
   private drawPlots(s: GameState, changed: BuildingId[]) {
     this.plotLayer.removeAll(true);
     for (const def of BUILDINGS) {
-      const pl = CITY.plots[def.id];
+      const pl = this.map.plots[def.id];
       const lvl = s.buildings[def.id];
       const PW = pl.w * CELL - 10, PH = pl.h * CELL - 10;
       const c = this.add.container(pl.x * CELL + (pl.w * CELL) / 2, pl.y * CELL + (pl.h * CELL) / 2);
       const g = this.add.graphics();
-      if (lvl === 0) {
+      if (lvl === 0 && s.upgrading[def.id]) {
+        g.fillStyle(0xe8d3a8, 1);
+        g.fillRoundedRect(-PW / 2, -PH / 2, PW, PH, 12);
+        g.lineStyle(3, 0xf2a541, 1);
+        g.strokeRoundedRect(-PW / 2, -PH / 2, PW, PH, 12);
+        g.fillStyle(0xf2a541, 1);
+        g.fillRect(PW / 2 - 20, -PH / 2 + 6, 6, PH - 12);
+        g.fillRect(-PW / 2 + 10, -PH / 2 + 8, PW - 30, 5);
+        c.add(g);
+        c.add(this.add.text(0, 6, def.icon, { fontSize: '18px' }).setOrigin(0.5).setAlpha(0.6));
+      } else if (lvl === 0) {
         g.fillStyle(0xffffff, 0.55);
         g.fillRoundedRect(-PW / 2, -PH / 2, PW, PH, 12);
         g.lineStyle(2, 0x1b2a5c, 0.4);
@@ -548,30 +651,110 @@ export class CityScene extends Phaser.Scene {
 
   /* ------------------------------------------------------------ highlight */
 
+  private bar(x: number, y: number, w: number, frac: number) {
+    const o = this.overlay;
+    o.fillStyle(0x14213d, 0.85);
+    o.fillRoundedRect(x, y, w, 9, 4);
+    o.fillStyle(0x2f9e5b, 1);
+    o.fillRoundedRect(x + 2, y + 2, Math.max(4, (w - 4) * Phaser.Math.Clamp(frac, 0, 1)), 5, 3);
+  }
+
+  private drawProgress(s: GameState) {
+    for (const b of this.map.buildings) {
+      if (!b.progress || b.removed) continue;
+      const f = (s.tick - b.progress.started) / Math.max(1, b.progress.done - b.progress.started);
+      this.bar(b.x * CELL + 6, (b.y + b.h) * CELL - 16, b.w * CELL - 12, f);
+    }
+    for (const def of BUILDINGS) {
+      const job = s.upgrading[def.id];
+      if (!job) continue;
+      const pl = this.map.plots[def.id];
+      this.bar(pl.x * CELL + 10, (pl.y + pl.h) * CELL - 18, pl.w * CELL - 20, (s.tick - job.started) / Math.max(1, job.done - job.started));
+    }
+  }
+
+  private drawToolPreview(s: GameState, tool: Tool) {
+    const o = this.overlay;
+    const h = this.hover;
+    if (!h) return;
+    const ok = 0x2f9e5b, bad = 0xd64545;
+    if (tool.type === 'place') {
+      const def = PLACEABLE_MAP[tool.kind];
+      const c = checkPlacement(s, this.map, tool.kind, h.x, h.y, tool.relocateFrom !== undefined);
+      o.fillStyle(c.ok ? ok : bad, 0.35);
+      o.fillRoundedRect(h.x * CELL, h.y * CELL, def.w * CELL, def.h * CELL, 8);
+      o.lineStyle(3, c.ok ? ok : bad, 1);
+      o.strokeRoundedRect(h.x * CELL, h.y * CELL, def.w * CELL, def.h * CELL, 8);
+      if (tool.relocateFrom !== undefined) {
+        const src = this.map.buildings[tool.relocateFrom];
+        if (src) {
+          o.lineStyle(3, 0xf2a541, 1);
+          o.strokeRoundedRect(src.x * CELL, src.y * CELL, src.w * CELL, src.h * CELL, 8);
+          o.lineBetween((src.x + src.w / 2) * CELL, (src.y + src.h / 2) * CELL, (h.x + def.w / 2) * CELL, (h.y + def.h / 2) * CELL);
+        }
+      }
+    } else if (tool.type === 'road') {
+      const st = tool.start ?? [h.x, h.y];
+      const c = checkRoad(s, this.map, st[0], st[1], h.x, h.y);
+      const valid = tool.start ? c.ok : true;
+      for (const [x, y] of roadPath(st[0], st[1], h.x, h.y)) {
+        o.fillStyle(valid ? 0x40454f : bad, valid ? 0.55 : 0.4);
+        o.fillRoundedRect(x * CELL + 6, y * CELL + 6, CELL - 12, CELL - 12, 4);
+      }
+      o.lineStyle(3, 0x7cc4f2, 1);
+      o.strokeRoundedRect(st[0] * CELL + 2, st[1] * CELL + 2, CELL - 4, CELL - 4, 6);
+    } else if (tool.type === 'zone') {
+      const st = tool.start ?? [h.x, h.y];
+      const color = tool.zone === 'clear' ? 0xffffff : ZONE_INFO[tool.zone].color;
+      const x0 = Math.min(st[0], h.x), y0 = Math.min(st[1], h.y);
+      o.lineStyle(3, color, 1);
+      o.strokeRect(x0 * CELL, y0 * CELL, (Math.abs(h.x - st[0]) + 1) * CELL, (Math.abs(h.y - st[1]) + 1) * CELL);
+      for (const i of zoneTiles(this.map, st[0], st[1], h.x, h.y, tool.zone)) {
+        o.fillStyle(color, 0.45);
+        o.fillRect((i % COLS) * CELL + 4, Math.floor(i / COLS) * CELL + 4, CELL - 8, CELL - 8);
+      }
+    } else if (tool.type === 'demolish') {
+      const b = buildingAt(this.map, h.x, h.y);
+      if (!b) return;
+      const info = demolitionInfo(s, this.map, b.id);
+      o.fillStyle(info.allowed ? bad : 0x888888, 0.35);
+      o.fillRoundedRect(b.x * CELL, b.y * CELL, b.w * CELL, b.h * CELL, 8);
+      o.lineStyle(3, info.allowed ? bad : 0x888888, 1);
+      o.strokeRoundedRect(b.x * CELL, b.y * CELL, b.w * CELL, b.h * CELL, 8);
+    }
+  }
+
   private drawOverlay() {
     const o = this.overlay;
     o.clear();
+    const s = this.bridge.getState();
+    this.drawProgress(s);
+    const tool = this.bridge.getTool();
+    if (tool) {
+      this.drawToolPreview(s, tool);
+      return;
+    }
     const hl = this.bridge.getHighlight();
     const pulse = 3 + Math.sin(this.time.now / 220) * 2;
     if (this.hover && !this.drag) {
-      const hp = plotAt(CITY, this.hover.x, this.hover.y);
-      const hb = buildingAt(CITY, this.hover.x, this.hover.y);
-      const r = hp ? CITY.plots[hp] : hb ?? { x: this.hover.x, y: this.hover.y, w: 1, h: 1 };
+      const hp = plotAt(this.map, this.hover.x, this.hover.y);
+      const hb = buildingAt(this.map, this.hover.x, this.hover.y);
+      const r = hp ? this.map.plots[hp] : hb ?? { x: this.hover.x, y: this.hover.y, w: 1, h: 1 };
       o.lineStyle(2, 0xffffff, 0.85);
       o.strokeRoundedRect(r.x * CELL + 1, r.y * CELL + 1, r.w * CELL - 2, r.h * CELL - 2, 8);
     }
     if (!hl) return;
     o.lineStyle(4, 0x38bdf8, 1);
     if (hl.type === 'plot') {
-      const r = CITY.plots[hl.id];
+      const r = this.map.plots[hl.id];
       o.strokeRoundedRect(r.x * CELL - pulse, r.y * CELL - pulse, r.w * CELL + pulse * 2, r.h * CELL + pulse * 2, 14);
     } else if (hl.type === 'building') {
-      const r = CITY.buildings[hl.id];
+      const r = this.map.buildings[hl.id];
       o.strokeRoundedRect(r.x * CELL - pulse, r.y * CELL - pulse, r.w * CELL + pulse * 2, r.h * CELL + pulse * 2, 10);
     } else if (hl.type === 'road') {
       o.strokeRoundedRect(hl.x * CELL - 2, hl.y * CELL - 2, CELL + 4, CELL + 4, 6);
     } else {
-      const d = CITY.districts.find((q) => q.id === hl.id)!;
+      const d = this.map.districts.find((q) => q.id === hl.id)!;
       o.fillStyle(0x38bdf8, 0.08);
       o.fillRect(d.x * CELL, d.y * CELL, d.w * CELL, d.h * CELL);
       o.lineStyle(3, 0x38bdf8, 0.9);
@@ -583,7 +766,7 @@ export class CityScene extends Phaser.Scene {
 
   private spawnVehicle(s: GameState, anywhere = false) {
     const [x, y] = this.roadTiles[Math.floor(Math.random() * this.roadTiles.length)];
-    const nb = roadNeighbours(CITY, x, y);
+    const nb = roadNeighbours(this.map, x, y);
     if (!nb.length) return;
     const [tx, ty] = nb[Math.floor(Math.random() * nb.length)];
     const busShare = 0.06 + s.buildings.bus * 0.08;
@@ -617,7 +800,7 @@ export class CityScene extends Phaser.Scene {
     v.t += v.speed * dt;
     while (v.t >= 1) {
       v.t -= 1;
-      const opts = roadNeighbours(CITY, v.tx, v.ty).filter(([nx, ny]) => !(nx === v.fx && ny === v.fy));
+      const opts = roadNeighbours(this.map, v.tx, v.ty).filter(([nx, ny]) => !(nx === v.fx && ny === v.fy));
       const dx = v.tx - v.fx, dy = v.ty - v.fy;
       const straight = opts.find(([nx, ny]) => nx - v.tx === dx && ny - v.ty === dy);
       let next: [number, number];
@@ -632,7 +815,7 @@ export class CityScene extends Phaser.Scene {
   }
 
   private buildTrains() {
-    CITY.metro.lines.forEach((l, i) => {
+    this.map.metro.lines.forEach((l, i) => {
       const c = this.add.container(0, 0);
       const horiz = l.y1 === l.y2;
       for (let k = 0; k < 4; k++) c.add(this.add.rectangle(horiz ? k * 30 : 0, horiz ? 0 : k * 30, horiz ? 27 : 11, horiz ? 11 : 27, 0xf5f3ff).setStrokeStyle(2, 0x9b6bd6));
@@ -648,19 +831,31 @@ export class CityScene extends Phaser.Scene {
     const aqi = actualAqi(s);
     const haze = Phaser.Math.Clamp((aqi - 90) / 330, 0, 1);
 
+    const nextMap = this.bridge.getMap();
+    const mapChanged = nextMap !== this.map;
+    if (mapChanged) {
+      this.map = nextMap;
+      this.collectRoads();
+    }
     const b = Math.round(haze * 8);
-    if (b !== this.bucket) {
+    if (b !== this.bucket || mapChanged) {
       this.bucket = b;
       this.drawCity(haze);
       this.drawTrees(s, haze);
     }
-    const key = BUILDINGS.map((x) => s.buildings[x.id]).join(',');
+    const key = BUILDINGS.map((x) => `${s.buildings[x.id]}${s.upgrading[x.id] ? 'u' : ''}`).join(',');
     if (key !== this.levelsKey) {
-      const prev = this.levelsKey ? this.levelsKey.split(',').map(Number) : null;
+      const prev = this.levelsKey ? this.levelsKey.split(',').map((v) => parseInt(v, 10)) : null;
       const changed = prev ? BUILDINGS.filter((x, i) => s.buildings[x.id] > prev[i]).map((x) => x.id) : [];
       this.levelsKey = key;
       this.drawPlots(s, changed);
       this.drawTrees(s, haze);
+    }
+    const tool = this.bridge.getTool();
+    const tk = `${tool ? tool.type : ''}|${s.mapVersion}`;
+    if (tk !== this.toolKey) {
+      this.toolKey = tk;
+      this.drawZones(!!tool && tool.type !== 'demolish');
     }
     this.drawOverlay();
 
@@ -681,7 +876,7 @@ export class CityScene extends Phaser.Scene {
 
     if (!anim) return;
     for (const tr of this.trains) {
-      const l = CITY.metro.lines[tr.line];
+      const l = this.map.metro.lines[tr.line];
       tr.t += dt * 0.05 * tr.dir;
       if (tr.t > 1 || tr.t < 0) {
         tr.dir *= -1;

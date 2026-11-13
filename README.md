@@ -9,7 +9,7 @@ A satirical idle / city-management game set in Delhi. **52 weeks. One city. One 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 63 unit tests (Vitest)
+npm test           # 80 unit tests (Vitest)
 npm run lint
 npm run typecheck
 npm run build      # production build into dist/
@@ -25,9 +25,11 @@ src/
   config/
     balance.ts    ← every balance number: start resources, buildings, research, optics, seasons, pollution coefficients
     events.ts     ← 16 events with choices, costs, timed effects and state-dependent outcomes
+    build.ts      ← build catalogue: costs, build weeks, zones, upkeep, demolition compensation
     content.ts    ← achievements, objectives, stage goals, endings, news templates, tutorial
   engine/         ← pure TypeScript simulation; no DOM and no rendering, deterministic per seed
     map.ts        ← 64×40 grid city: roads, river, 12 neighbourhoods, ~500 buildings, plots, metro, bus stops
+    build.ts      ← placement rules, construction, demolition/relocation, roads, zoning; map → simulation modifier
     core.ts       ← modifiers, pollution model, economy, actions, events, progression, endings, tick
     save.ts       ← versioned localStorage save, validation/migration, corrupt-save recovery, offline progress
     rng.ts        ← seeded Mulberry32; RNG state lives in the save
@@ -50,7 +52,7 @@ tests/engine.test.ts
 ## Roadmap (redesign phases)
 
 - [x] Phase 1: opening story, Secretary tutorial, grid city, camera pan/zoom, selection of buildings, roads and neighbourhoods
-- [ ] Phase 2: placement & demolition, road building, zoning, construction timers
+- [x] Phase 2: placement & demolition, relocation, road building, zoning, construction timers
 - [ ] Phase 3: population, commuting traffic, organic growth
 - [ ] Phase 4: neighbourhood AQI, pollution & economy map modes, approvals
 - [ ] Phase 5: weekly settlement, objectives & election evaluation

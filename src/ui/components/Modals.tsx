@@ -192,7 +192,7 @@ export function ReportModal() {
                   <i className="was" style={{ width: `${(r.start.emissions[k] / max) * 100}%` }} />
                   <i className="now" style={{ width: `${(r.end.emissions[k] / max) * 100}%`, background: SOURCE_META[k].color }} />
                 </span>
-                <em className={d <= 0 ? 'pos' : 'neg'}>{signed(Math.round(d))}</em>
+                <em className={Math.round(d) <= 0 ? 'pos' : 'neg'}>{signed(Math.round(d) || 0)}</em>
               </div>
             );
           })}
@@ -202,12 +202,12 @@ export function ReportModal() {
           <ul className="ticks">
             <li><Icon name="check" size={14} /> {plural(r.end.objectivesDone - r.start.objectivesDone, 'objective')} completed</li>
             <li><Icon name="check" size={14} /> {plural(r.end.eventsHandled - r.start.eventsHandled, 'decision')} taken</li>
-            {r.consequences.map((c) => <li key={c} className="warn"><Icon name="alert" size={14} /> {c}</li>)}
+            {r.consequences.map((c, i) => <li key={i} className="warn"><Icon name="alert" size={14} /> {c}</li>)}
           </ul>
           {r.headlines.length > 0 && (
             <>
               <h4>In the papers</h4>
-              {r.headlines.map((h) => <p key={h} className="clip">{/^[“"]/.test(h) ? h : `“${h}”`}</p>)}
+              {r.headlines.map((h, i) => <p key={i} className="clip">{/^[“"]/.test(h) ? h : `“${h}”`}</p>)}
             </>
           )}
         </div>

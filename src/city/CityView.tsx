@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useGame } from '../state/store';
+import { getLiveMap, useGame } from '../state/store';
 
 export default function CityView() {
   const host = useRef<HTMLDivElement>(null);
@@ -24,18 +24,21 @@ export default function CityView() {
         banner: false,
         audio: { noAudio: true },
       });
-      game.scene.add('city', CityScene, true, {
-        bridge: {
+      const bridge: import('./CityScene').CityBridge = {
           getState: () => useGame.getState().game,
           getHighlight: () => {
             const st = useGame.getState();
             return st.selected ? { type: 'plot' as const, id: st.selected } : st.inspect;
           },
           onPick: (p: import('../engine/map').Pick | null) => useGame.getState().onPick(p),
+          getMap: () => getLiveMap(useGame.getState().game),
+          getTool: () => useGame.getState().tool,
+          onToolClick: (x: number, y: number) => useGame.getState().toolClick(x, y),
+          onHover: (h: { x: number; y: number } | null) => useGame.getState().setHover(h),
           onCamera: (k: 'pan' | 'zoom') => useGame.getState().tutorialEvent(k),
           animations: () => useGame.getState().settings.animations,
-        },
-      });
+      };
+      game.scene.add('city', CityScene, true, { bridge });
     })();
     return () => {
       cancelled = true;

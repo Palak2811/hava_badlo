@@ -2,7 +2,12 @@ import { BUILDING_MAP, RESEARCH_MAP } from '../config/balance';
 import { EVENT_MAP } from '../config/events';
 import { ROAD_NAMES } from '../config/content';
 import { agg, buildingUnlocked, canAfford, nextLevelInfo } from '../engine/core';
-import { CITY, H_ARTERIALS, KIND_INFO, V_ARTERIALS, areaStats, districtAt, tileAt, type Kind } from '../engine/map';
+import { H_ARTERIALS, KIND_INFO, V_ARTERIALS, areaStats, districtAt, tileAt, type Kind } from '../engine/map';
+import { demolitionInfo } from '../engine/build';
+import { PLACEABLE_MAP } from '../config/build';
+import { TICKS_PER_WEEK } from '../config/balance';
+import { getLiveMap } from '../state/store';
+import { facilityWeeks } from '../engine/core';
 import { cityControls } from '../city/controls';
 import { useGame } from '../state/store';
 import { SOURCE_META } from './components/Charts';
@@ -46,7 +51,8 @@ export function ContextPanel() {
   const needs = next?.requiresResearch && !g.research.includes(next.requiresResearch) ? next.requiresResearch : null;
   const afford = next ? canAfford(g, next.cost) : false;
   const a = agg(g);
-  const disabled = !unlocked || !next || !!needs || !afford;
+  const job = g.upgrading[id];
+  const disabled = !unlocked || !next || !!needs || !afford || !!job;
 
   const act = () => {
     if (!next) return;
@@ -56,7 +62,8 @@ export function ContextPanel() {
   };
 
   let label = lvl === 0 ? 'Build' : `Upgrade to level ${lvl + 1}`;
-  if (!unlocked) label = 'Locked';
+  if (job) label = 'Under construction';
+  else if (!unlocked) label = 'Locked';
   else if (!next) label = 'Fully upgraded';
   else if (needs) label = 'Needs research';
   else if (!afford) label = 'Not enough funds';
@@ -87,8 +94,15 @@ export function ContextPanel() {
         </div>
       )}
 
+      {job && (
+        <div className="build-progress">
+          <span>{job.to === 1 ? 'Under construction' : `Upgrading to level ${job.to}`} · {Math.max(0, Math.ceil((job.done - g.tick) / TICKS_PER_WEEK * 10) / 10)} wk left</span>
+          <span className="meter"><i style={{ width: `${Math.min(100, ((g.tick - job.started) / Math.max(1, job.done - job.started)) * 100)}%`, background: 'var(--good)' }} /></span>
+        </div>
+      )}
       <dl className="ctx-facts">
         {cur && (<><dt>Now</dt><dd>{cur.summary}</dd></>)}
+        {next && unlocked && !job && (<><dt>Build time</dt><dd>{facilityWeeks(id, lvl + 1)} week{facilityWeeks(id, lvl + 1) > 1 ? 's' : ''}</dd></>)}
         {next && unlocked && (<><dt>{lvl ? 'Next level' : 'On build'}</dt><dd>{next.summary}</dd></>)}
         {next && unlocked && (<><dt>Upkeep</dt><dd>{inr(next.maintenance)}/wk</dd></>)}
         {!unlocked && (<><dt>Unlock</dt><dd>{def.unlockText}</dd></>)}
@@ -109,6 +123,7 @@ const KIND_NAMES: Record<Kind, [string, string]> = {
   office: ['office complex', 'office complexes'], factory: ['factory', 'factories'], warehouse: ['godown', 'godowns'],
   construction: ['construction site', 'construction sites'], park: ['park', 'parks'], monument: ['memorial', 'memorials'],
   busterminal: ['bus terminal', 'bus terminals'], school: ['school', 'schools'], hospital: ['hospital', 'hospitals'],
+  forest: ['urban forest', 'urban forests'], parking: ['parking facility', 'parking facilities'], busstop: ['bus stop', 'bus stops'],
 };
 
 const fmtPeople = (n: number) => (n >= 100000 ? `${num(n / 100000, 1)} lakh` : num(n));
@@ -116,13 +131,45 @@ const fmtPeople = (n: number) => (n >= 100000 ? `${num(n / 100000, 1)} lakh` : n
 /** Inspection panel for ordinary city buildings, roads and neighbourhoods. */
 export function InspectPanel() {
   const pick = useGame((s) => s.inspect);
+  const g = useGame((s) => s.game);
   const close = () => useGame.getState().onPick(null);
   if (!pick || pick.type === 'plot') return null;
+  const CITY = getLiveMap(g);
 
   if (pick.type === 'building') {
     const b = CITY.buildings[pick.id];
+    if (!b || b.removed) return null;
     const info = KIND_INFO[b.kind];
     const d = CITY.districts.find((x) => x.id === b.district)!;
+    const placed = b.placedUid !== undefined ? g.cityEdits.placed.find((p) => p.uid === b.placedUid) : undefined;
+    const pdef = placed ? PLACEABLE_MAP[placed.kind] : undefined;
+    const demo = demolitionInfo(g, CITY, b.id);
+    if (b.progress && placed && pdef) {
+      const frac = (g.tick - placed.started) / Math.max(1, placed.done - placed.started);
+      return (
+        <section className="context" aria-label={`${pdef.name} construction`}>
+          <button className="icon-btn ghost close" onClick={close} aria-label="Close"><Icon name="x" /></button>
+          <div className="ctx-head">
+            <span className="ctx-badge site" aria-hidden><Icon name="hammer" size={22} /></span>
+            <div>
+              <small>{d.name} · construction site</small>
+              <h3>{pdef.name}</h3>
+            </div>
+          </div>
+          <div className="build-progress">
+            <span>{Math.round(frac * 100)}% complete · {Math.max(0, Math.ceil(((placed.done - g.tick) / TICKS_PER_WEEK) * 10) / 10)} wk left</span>
+            <span className="meter"><i style={{ width: `${Math.min(100, frac * 100)}%`, background: 'var(--good)' }} /></span>
+          </div>
+          <dl className="ctx-facts">
+            <dt>Total cost</dt><dd>{inr(placed.cost)}</dd>
+            <dt>On completion</dt><dd>{pdef.impact}</dd>
+            {pdef.upkeep > 0 && (<><dt>Upkeep</dt><dd>{inr(pdef.upkeep)}/wk</dd></>)}
+            <dt>Meanwhile</dt><dd>Construction dust nearby</dd>
+          </dl>
+          <button className="btn ghost block" onClick={() => useGame.getState().askDemolish(b.id)}>Cancel construction · refund {inr(demo.refund)}</button>
+        </section>
+      );
+    }
     const scale = (b.kind === 'house' || b.kind === 'shop') ? b.w * b.h : 1;
     return (
       <section className="context" aria-label={info.label}>
@@ -143,7 +190,21 @@ export function InspectPanel() {
           {b.kind === 'construction' && (<><dt>Emissions</dt><dd>Construction dust</dd></>)}
           {b.kind === 'warehouse' && (<><dt>Traffic</dt><dd>Heavy trucks, day and night</dd></>)}
         </dl>
-        <p className="hint">Upgrading, demolishing and redeveloping private buildings arrives with city-building tools.</p>
+        {demo.allowed ? (
+          <div className="ctx-actions">
+            {b.kind === 'factory' && (
+              <button className="btn primary" onClick={() => useGame.getState().setTool({ type: 'place', kind: b.w * b.h >= 6 ? 'bigfactory' : 'factory', relocateFrom: b.id })}>
+                <Icon name="arrow" /> Relocate & modernise
+              </button>
+            )}
+            <button className="btn danger-ghost" onClick={() => useGame.getState().askDemolish(b.id)}>
+              Demolish · {inr(demo.cost)}
+            </button>
+          </div>
+        ) : (
+          <p className="hint">{demo.reason}</p>
+        )}
+        {b.kind === 'factory' && demo.allowed && <p className="hint">Relocation moves the jobs to a new industrial site with modern emission controls (half the smoke). Demolition removes them.</p>}
       </section>
     );
   }
@@ -176,6 +237,7 @@ export function InspectPanel() {
 
   const d = CITY.districts.find((x) => x.id === pick.id)!;
   const st = areaStats(CITY, d.id);
+  const sites = CITY.buildings.filter((b) => b.district === d.id && b.progress && !b.removed).length;
   const top = Object.entries(st.counts).sort((a, b) => b[1] - a[1]).slice(0, 4);
   return (
     <section className="context" aria-label={d.name}>
@@ -196,6 +258,7 @@ export function InspectPanel() {
       <dl className="ctx-facts">
         <dt>Mostly</dt><dd>{top.map(([k, n]) => `${n} ${KIND_NAMES[k as Kind][n === 1 ? 0 : 1]}`).join(', ')}</dd>
         <dt>Green cover</dt><dd>{st.greenTiles} park tiles</dd>
+        {sites > 0 && (<><dt>Projects</dt><dd>{sites} under construction</dd></>)}
       </dl>
       <p className="hint">Neighbourhood-level air quality comes with the pollution map mode.</p>
     </section>

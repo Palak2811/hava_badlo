@@ -36,6 +36,8 @@ export interface Modifier {
   eventSeverityMult?: number;
   /** Monitoring coverage % contribution. */
   coverage?: number;
+  /** Flat upkeep added to weekly maintenance (₹). */
+  upkeepPerWeek?: number;
 }
 
 export interface Cost {
@@ -144,6 +146,8 @@ export interface GameStats {
   /** sum of (baseline - actual) AQI integrated per day */
   aqiReductionWeeks: number;
   objectivesDone: number;
+  projectsCompleted: number;
+  demolitions: number;
 }
 
 export interface Settings {
@@ -197,9 +201,58 @@ export interface GameState {
   pressureMaxedWeeks: number;
   lastOpticsWeek: number;
   phaseStart: PhaseSnap;
+  /** Department facilities under construction or upgrade. */
+  upgrading: Partial<Record<BuildingId, { to: number; started: number; done: number }>>;
+  /** Everything the player changed on the map since week 1. */
+  cityEdits: CityEdits;
+  /** Bumped whenever the map changes (renderer cache key). */
+  mapVersion: number;
+  /** Derived from the map whenever it changes; feeds the simulation. */
+  mapStats: MapStats;
   phaseReports: PhaseReport[];
   reportPending: boolean;
   briefingSeen: number;
+}
+
+export type Zone = 'res' | 'com' | 'ind' | 'green';
+export type Placeable =
+  | 'house' | 'apartment' | 'shop' | 'market' | 'office' | 'factory' | 'bigfactory' | 'warehouse'
+  | 'busstop' | 'parking' | 'park' | 'forest' | 'school' | 'hospital';
+
+export interface Placed {
+  uid: number;
+  kind: Placeable;
+  x: number; y: number; w: number; h: number;
+  cost: number;
+  started: number;
+  done: number;
+  built: boolean;
+  /** relocated (modernised) factories emit less */
+  modern?: boolean;
+}
+
+export interface CityEdits {
+  placed: Placed[];
+  /** ids of base-city buildings that were demolished or relocated */
+  demolished: number[];
+  roads: { i: number; done: number; built: boolean }[];
+  /** zoning designations keyed by tile index */
+  zones: Record<string, Zone>;
+  nextUid: number;
+}
+
+export interface MapStats {
+  population: number;
+  jobs: number;
+  industryLoad: number;
+  commercialTiles: number;
+  constructionSites: number;
+  parkTiles: number;
+  hospitals: number;
+  schools: number;
+  parkingTiles: number;
+  busStops: number;
+  upkeep: number;
 }
 
 export interface PhaseSnap {

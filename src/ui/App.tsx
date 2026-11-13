@@ -5,6 +5,7 @@ import { useGame, type Tab } from '../state/store';
 import { Hud } from './Hud';
 import { ContextPanel, EventChip, InspectPanel, ObjectivesWidget, ZoomControls } from './MapOverlay';
 import { Intro } from './Intro';
+import { BuildPalette, ToolPanel } from './BuildPalette';
 import { Tutorial } from './Tutorial';
 import { Icon, type IconName } from './icons';
 import ResearchScreen from './screens/ResearchTab';
@@ -118,6 +119,8 @@ export default function App() {
   const tab = useGame((s) => s.tab);
   const setTab = useGame((s) => s.setTab);
   const pending = useGame((s) => s.game.events.length);
+  const buildOpen = useGame((s) => s.buildOpen);
+  const toggleBuild = useGame((s) => s.toggleBuild);
   const loadNotice = useGame((s) => s.loadNotice);
   const toast = useGame((s) => s.toast);
   useEffect(() => {
@@ -142,12 +145,18 @@ export default function App() {
       <ContextPanel />
       <InspectPanel />
       <ZoomControls />
-      <ObjectivesWidget />
+      {!buildOpen && <ObjectivesWidget />}
+      <BuildPalette />
+      <ToolPanel />
       {tab !== 'city' && <div className="scrim" onClick={() => setTab('city')} />}
       {tab !== 'city' && <Drawer tab={tab} />}
       <nav className="nav" aria-label="Main">
+        <button className={`nav-item build ${buildOpen ? 'on' : ''}`} onClick={() => toggleBuild()} aria-pressed={buildOpen}>
+          <Icon name="hammer" size={20} />
+          <span>Build</span>
+        </button>
         {NAV.map((n) => (
-          <button key={n.id} className={`nav-item ${tab === n.id ? 'on' : ''}`} onClick={() => setTab(n.id)} aria-current={tab === n.id}>
+          <button key={n.id} className={`nav-item ${tab === n.id && !buildOpen ? 'on' : ''}`} onClick={() => setTab(n.id)} aria-current={tab === n.id}>
             <Icon name={n.icon} size={20} />
             <span>{n.label}</span>
             {n.id === 'news' && pending > 0 && <em className="dot">{pending}</em>}

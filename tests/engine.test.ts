@@ -3,7 +3,7 @@ import { BUILDING_MAP, CAMPAIGN_WEEKS, ECONOMY, OPTICS, RESEARCH, SAVE_KEY, STAR
 import { EVENTS, EVENT_MAP } from '../src/config/events';
 import { ACHIEVEMENTS } from '../src/config/content';
 import {
-  actualAqi, advance, agg, baselineAqi, buyBuilding, claimGrant, concToAqi, weekOf, doResearch, emissions, endingInput,
+  actualAqi, advance, finishAllConstruction, agg, baselineAqi, buyBuilding, claimGrant, concToAqi, weekOf, doResearch, emissions, endingInput,
   evaluateEnding, incomePerWeek, maintenancePerWeek, newGame, officialAqi, opticsUnlocked, rates, reductionPct,
   researchStatus, resolveEvent, rollEvents, seasonOf, spawnEvent, step, steadyConc, executeOptics, type EndingInput,
 } from '../src/engine/core';
@@ -16,6 +16,12 @@ const fresh = (seed = 7) => {
   s.introDone = true;
   s.objectives = []; // isolate tests from daily-objective rewards
   return s;
+};
+/** Buy a facility and finish its construction immediately. */
+const build = (s: GameState, id: Parameters<typeof buyBuilding>[1]) => {
+  const r = buyBuilding(s, id);
+  finishAllConstruction(s);
+  return r;
 };
 const run = (s: GameState, ticks: number) => {
   for (let i = 0; i < ticks; i++) step(s);
@@ -69,7 +75,7 @@ describe('economy', () => {
 describe('buildings', () => {
   it('purchases deduct cost and set level', () => {
     const s = fresh();
-    const r = buyBuilding(s, 'monitor');
+    const r = build(s, 'monitor');
     expect(r.ok).toBe(true);
     expect(s.buildings.monitor).toBe(1);
     expect(s.res.budget).toBe(10000 - 2500 + 1000); // + First Building achievement
@@ -79,7 +85,7 @@ describe('buildings', () => {
   it('rejects purchase with insufficient money and does not change state', () => {
     const s = fresh();
     s.res.budget = 100;
-    const r = buyBuilding(s, 'dust');
+    const r = build(s, 'dust');
     expect(r.ok).toBe(false);
     expect(s.buildings.dust).toBe(0);
     expect(s.res.budget).toBe(100);
@@ -87,25 +93,25 @@ describe('buildings', () => {
 
   it('respects unlock conditions (day, building, stage)', () => {
     const s = fresh();
-    expect(buyBuilding(s, 'bus').ok).toBe(false); // day 3
-    expect(buyBuilding(s, 'industrial').ok).toBe(false); // needs monitor
-    expect(buyBuilding(s, 'parali').ok).toBe(false); // stage 2
-    buyBuilding(s, 'monitor');
-    expect(buyBuilding(s, 'industrial').ok).toBe(true);
+    expect(build(s, 'bus').ok).toBe(false); // day 3
+    expect(build(s, 'industrial').ok).toBe(false); // needs monitor
+    expect(build(s, 'parali').ok).toBe(false); // stage 2
+    build(s, 'monitor');
+    expect(build(s, 'industrial').ok).toBe(true);
   });
 
   it('upgrades raise level, need research for gated levels, and stop at max', () => {
     const s = fresh();
     s.res.budget = 1e6;
     s.res.rp = 1e4;
-    for (let i = 0; i < 3; i++) expect(buyBuilding(s, 'dust').ok).toBe(true);
-    const gated = buyBuilding(s, 'dust');
+    for (let i = 0; i < 3; i++) expect(build(s, 'dust').ok).toBe(true);
+    const gated = build(s, 'dust');
     expect(gated.ok).toBe(false);
     expect(gated.msg).toMatch(/research/i);
     s.research.push('a_network', 'a_dust');
-    expect(buyBuilding(s, 'dust').ok).toBe(true);
+    expect(build(s, 'dust').ok).toBe(true);
     expect(s.buildings.dust).toBe(4);
-    const max = buyBuilding(s, 'dust');
+    const max = build(s, 'dust');
     expect(max.ok).toBe(false);
     expect(max.msg).toMatch(/maximum/i);
   });
@@ -114,9 +120,9 @@ describe('buildings', () => {
     const a = fresh();
     const b = fresh();
     b.res.budget = 1e6;
-    buyBuilding(b, 'dust');
-    buyBuilding(b, 'dust');
-    buyBuilding(b, 'waste');
+    build(b, 'dust');
+    build(b, 'dust');
+    build(b, 'waste');
     expect(emissions(b).dust).toBeLessThan(emissions(a).dust);
     run(a, 50);
     run(b, 50);
@@ -126,7 +132,7 @@ describe('buildings', () => {
 
   it('monitoring centre produces research points', () => {
     const s = fresh();
-    buyBuilding(s, 'monitor');
+    build(s, 'monitor');
     const rp0 = s.res.rp;
     run(s, TICKS_PER_WEEK);
     expect(s.res.rp - rp0).toBeGreaterThanOrEqual(35);
@@ -292,8 +298,8 @@ describe('optics / satire', () => {
   it('watering the monitor improves official AQI but not actual, and costs credibility', () => {
     const s = fresh();
     s.res.budget = 1e5;
-    buyBuilding(s, 'monitor');
-    buyBuilding(s, 'pr');
+    build(s, 'monitor');
+    build(s, 'pr');
     const act = actualAqi(s);
     expect(executeOptics(s, 'water').ok).toBe(true);
     expect(officialAqi(s)).toBeLessThan(act);
@@ -305,7 +311,7 @@ describe('optics / satire', () => {
   it('committees reduce pressure and produce a report later', () => {
     const s = fresh();
     s.res.budget = 1e5;
-    buyBuilding(s, 'pr');
+    build(s, 'pr');
     const p0 = s.res.pressure;
     expect(executeOptics(s, 'committee').ok).toBe(true);
     expect(s.res.pressure).toBe(p0 - 12);
@@ -318,7 +324,7 @@ describe('optics / satire', () => {
     const s = fresh();
     s.res.budget = 1e5;
     expect(executeOptics(s, 'committee').ok).toBe(false); // no PR office
-    buyBuilding(s, 'pr');
+    build(s, 'pr');
     expect(executeOptics(s, 'committee').ok).toBe(true);
     expect(executeOptics(s, 'committee').ok).toBe(false); // cooldown
     expect(opticsUnlocked(s, 'victory')).toBe(false);
@@ -366,8 +372,8 @@ describe('grants and clean air credits', () => {
     expect(idle.res.cac).toBe(0);
     const s = fresh();
     s.res.budget = 1e5;
-    buyBuilding(s, 'dust');
-    buyBuilding(s, 'waste');
+    build(s, 'dust');
+    build(s, 'waste');
     run(s, 120);
     expect(s.res.cac).toBeGreaterThan(0);
   });
@@ -377,7 +383,7 @@ describe('save / load', () => {
   it('round-trips state through storage', () => {
     const st = new MemStorage();
     const s = fresh();
-    buyBuilding(s, 'monitor');
+    build(s, 'monitor');
     run(s, 100);
     save(st, s, 1000);
     const r = load(st, 1000);
@@ -432,7 +438,7 @@ describe('save / load', () => {
 describe('offline progression', () => {
   it('produces resources while away and reports a summary', () => {
     const s = fresh();
-    buyBuilding(s, 'monitor');
+    build(s, 'monitor');
     s.lastActive = 0;
     const { state, summary } = applyOffline(s, 600 * 1000);
     expect(summary).not.toBeNull();
@@ -513,7 +519,7 @@ describe('progression & achievements', () => {
   it('awards First Building with a reward', () => {
     const s = fresh();
     const b = s.res.budget;
-    buyBuilding(s, 'pr');
+    build(s, 'pr');
     expect(s.achievements).toContain('first_building');
     expect(s.res.budget).toBe(b - 2000 + 1000);
   });
@@ -522,7 +528,7 @@ describe('progression & achievements', () => {
     const s = fresh();
     run(s, 14 * TICKS_PER_WEEK + 1);
     expect(s.stage).toBe(2);
-    expect(buyBuilding({ ...s, res: { ...s.res, budget: 1e6, capital: 100 } } as GameState, 'parali').ok).toBe(true);
+    expect(build({ ...s, res: { ...s.res, budget: 1e6, capital: 100 } } as GameState, 'parali').ok).toBe(true);
   });
 
   it('daily objectives refresh each day', () => {
@@ -536,7 +542,7 @@ describe('progression & achievements', () => {
     const a = fresh();
     const b = fresh();
     b.res.budget = 1e5;
-    buyBuilding(b, 'dust');
+    build(b, 'dust');
     run(a, 50);
     run(b, 50);
     expect(baselineAqi(a)).toBe(baselineAqi(b));

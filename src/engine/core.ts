@@ -17,6 +17,9 @@ import {
 import { EVENTS, EVENT_MAP, type EventCtx } from '../config/events';
 import { ACHIEVEMENTS, NEWS_TEMPLATES, OBJECTIVE_TEMPLATES, STAGE_OBJECTIVES } from '../config/content';
 import { nextRandom } from './rng';
+import { BASE_STATS } from './map';
+import { advanceConstruction, mapModifier } from './build';
+import { FACILITY_WEEKS } from '../config/build';
 import { SOURCES, type PhaseSnap, type BuildingId, type Cost, type Deltas, type EndingId, type GameState, type Modifier, type NewsKind, type Source } from './types';
 
 export const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
@@ -56,7 +59,7 @@ export function newGame(seed = Date.now() % 2147483647, now = Date.now()): GameS
     achievements: [],
     stats: {
       highestAqi: 0, lowestAqi: 999, totalSpent: 0, eventsHandled: 0, opticsUsed: 0, committees: 0, reports: 0,
-      purifiers: 0, toughDecisions: 0, exposures: 0, buildingsBought: 0, upgradesBought: 0, cacEarned: 0, aqiReductionWeeks: 0, objectivesDone: 0,
+      purifiers: 0, toughDecisions: 0, exposures: 0, buildingsBought: 0, upgradesBought: 0, cacEarned: 0, aqiReductionWeeks: 0, objectivesDone: 0, projectsCompleted: 0, demolitions: 0,
     },
     ended: null,
     sandbox: false,
@@ -71,6 +74,10 @@ export function newGame(seed = Date.now() % 2147483647, now = Date.now()): GameS
     phaseReports: [],
     reportPending: false,
     briefingSeen: 0,
+    upgrading: {},
+    cityEdits: { placed: [], demolished: [], roads: [], zones: {}, nextUid: 1 },
+    mapVersion: 0,
+    mapStats: { ...BASE_STATS },
   };
   // settle the atmosphere to day-1 steady state
   const target = steadyConc(s, false);
@@ -115,6 +122,7 @@ export function collectModifiers(s: GameState): Modifier[] {
     if (r) mods.push(r.modifier);
   }
   if (s.stats.purifiers > 0) mods.push({ control: { other: Math.min(0.05, 0.005 * s.stats.purifiers) } });
+  mods.push(mapModifier(s));
   for (const e of s.effects) mods.push(e.modifier);
   return mods;
 }
@@ -135,6 +143,7 @@ export interface Aggregate {
   perceptionBias: number;
   eventSeverityMult: number;
   coverage: number;
+  upkeepPerWeek: number;
 }
 
 export function aggregate(mods: Modifier[]): Aggregate {
@@ -143,7 +152,7 @@ export function aggregate(mods: Modifier[]): Aggregate {
   const a: Aggregate = {
     control: { ...keep }, emissionMult: em, dispersionMult: 1, incomePerWeek: 0, incomeMult: 1, maintenanceMult: 1,
     researchPerWeek: 0, researchMult: 1, trustPerWeek: 0, pressurePerWeek: 0, capitalPerWeek: 0, participationPerWeek: 0,
-    perceptionBias: 0, eventSeverityMult: 1, coverage: 0,
+    perceptionBias: 0, eventSeverityMult: 1, coverage: 0, upkeepPerWeek: 0,
   };
   for (const m of mods) {
     if (m.control) for (const k of SOURCES) if (m.control[k]) keep[k] *= 1 - (m.control[k] as number);
@@ -161,6 +170,7 @@ export function aggregate(mods: Modifier[]): Aggregate {
     a.perceptionBias += m.perceptionBias ?? 0;
     if (m.eventSeverityMult) a.eventSeverityMult *= m.eventSeverityMult;
     a.coverage += m.coverage ?? 0;
+    a.upkeepPerWeek += m.upkeepPerWeek ?? 0;
   }
   for (const k of SOURCES) a.control[k] = clamp(1 - keep[k], 0, POLLUTION.maxControl);
   a.perceptionBias = clamp(a.perceptionBias, 0, 0.6);
@@ -245,7 +255,43 @@ export function maintenancePerWeek(s: GameState, a: Aggregate = agg(s)) {
     const lvl = s.buildings[b.id];
     if (lvl > 0) m += b.levels[lvl - 1].maintenance;
   }
-  return m * a.maintenanceMult;
+  return m * a.maintenanceMult + a.upkeepPerWeek;
+}
+
+/** Construction time (weeks) for a facility's next level. */
+export function facilityWeeks(id: BuildingId, toLevel: number) {
+  const w = FACILITY_WEEKS[id];
+  return w ? w[Math.min(w.length - 1, toLevel - 1)] : 1;
+}
+
+/** Complete every pending construction job right now (tests, debug and cheats). */
+export function finishAllConstruction(s: GameState) {
+  for (const job of Object.values(s.upgrading)) if (job) job.done = s.tick;
+  for (const p of s.cityEdits.placed) if (!p.built) p.done = s.tick;
+  for (const r of s.cityEdits.roads) if (!r.built) r.done = s.tick;
+  advanceFacilities(s);
+  advanceConstruction(s);
+}
+
+/** Finish facilities whose construction is complete (called every tick). */
+function advanceFacilities(s: GameState) {
+  for (const id of Object.keys(s.upgrading) as BuildingId[]) {
+    const job = s.upgrading[id];
+    if (!job || job.done > s.tick) continue;
+    delete s.upgrading[id];
+    const def = BUILDING_MAP[id];
+    const first = s.buildings[id] === 0;
+    s.buildings[id] = job.to;
+    if (first) {
+      s.builtAt[id] = s.tick;
+      s.stats.buildingsBought += 1;
+      addNews(s, 'gov', templ(s, 'buy', { name: def.name }));
+    } else {
+      s.stats.upgradesBought += 1;
+      addNews(s, 'gov', templ(s, 'upgrade', { name: def.name, lvl: job.to }));
+    }
+    checkProgress(s);
+  }
 }
 export function incomePerWeek(s: GameState, a: Aggregate = agg(s)) {
   const trustMult = ECONOMY.trustIncomeBase + (s.res.trust / 100) * ECONOMY.trustIncomeSlope;
@@ -264,7 +310,7 @@ export function rates(s: GameState) {
 export function canAfford(s: GameState, c: Cost) {
   return (c.budget ?? 0) <= s.res.budget && (c.rp ?? 0) <= s.res.rp && (c.capital ?? 0) <= s.res.capital && (c.cac ?? 0) <= s.res.cac;
 }
-function pay(s: GameState, c: Cost) {
+export function pay(s: GameState, c: Cost) {
   s.res.budget -= c.budget ?? 0;
   s.res.rp -= c.rp ?? 0;
   s.res.capital -= c.capital ?? 0;
@@ -332,19 +378,12 @@ export function buyBuilding(s: GameState, id: BuildingId): ActionResult {
   if (!next) return { ok: false, msg: 'Already at maximum level' };
   if (next.requiresResearch && !s.research.includes(next.requiresResearch)) return { ok: false, msg: `Requires research: ${RESEARCH_MAP[next.requiresResearch].name}` };
   if (!canAfford(s, next.cost)) return { ok: false, msg: 'Insufficient resources' };
+  if (s.upgrading[id]) return { ok: false, msg: 'Already under construction' };
   pay(s, next.cost);
+  const weeks = facilityWeeks(id, next.level);
+  s.upgrading[id] = { to: next.level, started: s.tick, done: s.tick + weeks * TICKS_PER_WEEK };
   const first = s.buildings[id] === 0;
-  s.buildings[id] = next.level;
-  if (first) {
-    s.builtAt[id] = s.tick;
-    s.stats.buildingsBought += 1;
-    addNews(s, 'gov', templ(s, 'buy', { name: def.name }));
-  } else {
-    s.stats.upgradesBought += 1;
-    addNews(s, 'gov', templ(s, 'upgrade', { name: def.name, lvl: next.level }));
-  }
-  checkProgress(s);
-  return { ok: true, msg: first ? `${def.name} built!` : `${def.name} upgraded to level ${next.level}` };
+  return { ok: true, msg: `${first ? 'Construction' : 'Upgrade'} started: ${def.name} · ready in ${weeks} wk` };
 }
 
 export type ResearchStatus = 'done' | 'available' | 'locked';
@@ -707,6 +746,8 @@ export function step(s: GameState, opts: { offline?: boolean } = {}) {
   s.stats.aqiReductionWeeks += (baselineAqi(s) - newAqi) * perTick;
 
   s.tick += 1;
+  advanceFacilities(s);
+  advanceConstruction(s);
 
   // expiries
   s.effects = s.effects.filter((e) => e.until > s.tick);

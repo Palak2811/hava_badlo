@@ -6,16 +6,16 @@
  * Generation is deterministic (fixed seed) so every player starts in the same Delhi and the
  * layout can be unit-tested. Rendering lives in src/city; this module has no DOM dependency.
  */
-import type { BuildingId } from './types';
+import type { BuildingId, CityEdits, MapStats, Zone } from './types';
 
 export const COLS = 64;
 export const ROWS = 40;
 export const CELL = 40;
 
-export type Tile = 'grass' | 'water' | 'street' | 'arterial' | 'bridge' | 'lot' | 'plot' | 'park';
+export type Tile = 'grass' | 'water' | 'street' | 'arterial' | 'bridge' | 'lot' | 'plot' | 'park' | 'roadwork';
 export type Kind =
   | 'house' | 'apartment' | 'shop' | 'market' | 'office' | 'factory' | 'warehouse'
-  | 'construction' | 'park' | 'monument' | 'busterminal' | 'school' | 'hospital';
+  | 'construction' | 'park' | 'monument' | 'busterminal' | 'school' | 'hospital' | 'forest' | 'parking' | 'busstop';
 export type Character = 'industry' | 'commercial' | 'dense' | 'apartments' | 'offices' | 'transport' | 'green' | 'residential';
 
 export interface District {
@@ -32,6 +32,13 @@ export interface MapBuilding {
   x: number; y: number; w: number; h: number;
   district: string;
   seed: number;
+  /** demolished (or relocated away) */
+  removed?: boolean;
+  /** set for player-placed buildings */
+  placedUid?: number;
+  /** set while a placed building is still under construction */
+  progress?: { started: number; done: number };
+  modern?: boolean;
 }
 
 /** Anything the player can select on the map. */
@@ -54,6 +61,7 @@ export interface CityMap {
   metro: { stations: Station[]; lines: { x1: number; y1: number; x2: number; y2: number }[] };
   busStops: { x: number; y: number }[];
   riverX: number[];
+  zones: Record<string, Zone>;
 }
 
 export const H_ARTERIALS = [9, 20, 31];
@@ -100,6 +108,9 @@ export const KIND_INFO: Record<Kind, { label: string; residents: number; jobs: n
   monument: { label: 'India Gate', residents: 0, jobs: 40, blurb: 'War memorial and the city’s favourite evening picnic spot.' },
   busterminal: { label: 'Interstate Bus Terminal', residents: 0, jobs: 600, blurb: 'Buses to every corner of North India. Diesel to every corner of the lungs.' },
   school: { label: 'School', residents: 0, jobs: 160, blurb: 'Closes when AQI crosses 450, reopens when it drops to 449.' },
+  forest: { label: 'Urban forest', residents: 0, jobs: 4, blurb: 'Dense native trees planted close together. Birds approve.' },
+  parking: { label: 'Parking facility', residents: 0, jobs: 20, blurb: 'Multi-level parking. Earns fees; invites more cars.' },
+  busstop: { label: 'Bus stop', residents: 0, jobs: 0, blurb: 'A shelter, a route map and a crowd at 9 am.' },
   hospital: { label: 'Hospital', residents: 0, jobs: 1000, blurb: 'Respiratory OPD queues start at 6 am in winter.' },
 };
 
@@ -117,7 +128,7 @@ const WEIGHTS: Record<Character, Weights> = {
 const SIZE: Record<Kind, [number, number][]> = {
   house: [[1, 1]], shop: [[1, 1]], apartment: [[2, 2]], market: [[2, 1], [1, 1]], office: [[2, 2], [2, 1]],
   factory: [[3, 2], [2, 2]], warehouse: [[2, 1], [2, 2]], construction: [[2, 2]], park: [[2, 2], [2, 1]],
-  monument: [[2, 1]], busterminal: [[4, 2]], school: [[2, 1]], hospital: [[2, 2]],
+  monument: [[2, 1]], busterminal: [[4, 2]], school: [[2, 1]], hospital: [[2, 2]], forest: [[3, 3]], parking: [[2, 2]], busstop: [[1, 1]],
 };
 
 function rng(seed: number) {
@@ -252,7 +263,7 @@ export function generateCity(seed = 1947): CityMap {
   return {
     cols: COLS, rows: ROWS, tiles, owner, districts: DISTRICTS, buildings, plots,
     metro: { stations: metroDefs, lines: [{ x1: 0, y1: 20, x2: riverX[20] + 4, y2: 20 }, { x1: 28, y1: 0, x2: 28, y2: ROWS - 1 }] },
-    busStops, riverX,
+    busStops, riverX, zones: {},
   };
 }
 
@@ -301,6 +312,7 @@ export interface AreaStats {
 export function areaStats(m: CityMap, districtId?: string): AreaStats {
   const st: AreaStats = { population: 0, jobs: 0, counts: {}, roads: 0, greenTiles: 0, emptyTiles: 0 };
   for (const b of m.buildings) {
+    if (b.removed || b.progress) continue;
     if (districtId && b.district !== districtId) continue;
     const k = KIND_INFO[b.kind];
     const scale = b.w * b.h > 1 && (b.kind === 'house' || b.kind === 'shop') ? b.w * b.h : 1;
@@ -320,3 +332,96 @@ export function areaStats(m: CityMap, districtId?: string): AreaStats {
 
 /** The one shared Delhi. */
 export const CITY = generateCity();
+
+/* ------------------------------------------------------------------ zoning */
+
+const DEFAULT_ZONE: Record<Character, Zone> = {
+  industry: 'ind', commercial: 'com', offices: 'com', transport: 'com', dense: 'res', apartments: 'res', residential: 'res', green: 'green',
+};
+export function zoneAt(m: CityMap, x: number, y: number): Zone | null {
+  if (!inBounds(x, y)) return null;
+  const z = m.zones[String(idx(x, y))];
+  if (z) return z;
+  const d = districtAt(m, x, y);
+  return d ? DEFAULT_ZONE[d.character] : null;
+}
+
+/* ------------------------------------------------------------------ live map = base city + player edits */
+
+export function cloneMap(m: CityMap): CityMap {
+  return {
+    ...m,
+    tiles: m.tiles.slice(),
+    owner: m.owner.slice(),
+    buildings: m.buildings.map((b) => ({ ...b })),
+    zones: { ...m.zones },
+  };
+}
+
+const PLACED_KIND: Record<string, Kind> = {
+  house: 'house', apartment: 'apartment', shop: 'shop', market: 'market', office: 'office', factory: 'factory', bigfactory: 'factory',
+  warehouse: 'warehouse', busstop: 'busstop', parking: 'parking', park: 'park', forest: 'forest', school: 'school', hospital: 'hospital',
+};
+
+/** Builds the current map from the base city plus every player edit (pure). */
+export function buildMap(edits: CityEdits, base: CityMap = CITY): CityMap {
+  const m = cloneMap(base);
+  for (const id of edits.demolished) {
+    const b = m.buildings[id];
+    if (!b || b.removed) continue;
+    b.removed = true;
+    for (let y = b.y; y < b.y + b.h; y++) for (let x = b.x; x < b.x + b.w; x++) {
+      m.tiles[idx(x, y)] = 'grass';
+      m.owner[idx(x, y)] = -1;
+    }
+  }
+  for (const r of edits.roads) m.tiles[r.i] = r.built ? 'street' : 'roadwork';
+  for (const p of edits.placed) {
+    const id = m.buildings.length;
+    const kind = PLACED_KIND[p.kind];
+    m.buildings.push({
+      id, kind, x: p.x, y: p.y, w: p.w, h: p.h, district: districtAt(m, p.x, p.y)?.id ?? 'cp', seed: p.uid * 7919 + 13,
+      placedUid: p.uid, progress: p.built ? undefined : { started: p.started, done: p.done }, modern: p.modern,
+    });
+    for (let y = p.y; y < p.y + p.h; y++) for (let x = p.x; x < p.x + p.w; x++) {
+      m.tiles[idx(x, y)] = p.built && (kind === 'park' || kind === 'forest') ? 'park' : 'lot';
+      m.owner[idx(x, y)] = id;
+    }
+  }
+  m.zones = { ...edits.zones };
+  return m;
+}
+
+/** Aggregate numbers the simulation needs from the map. */
+export function computeMapStats(m: CityMap, upkeepOf: (b: MapBuilding) => number = () => 0): MapStats {
+  const s: MapStats = { population: 0, jobs: 0, industryLoad: 0, commercialTiles: 0, constructionSites: 0, parkTiles: 0, hospitals: 0, schools: 0, parkingTiles: 0, busStops: m.busStops.length, upkeep: 0 };
+  for (const b of m.buildings) {
+    if (b.removed) continue;
+    if (b.progress) {
+      s.constructionSites++;
+      continue;
+    }
+    const k = KIND_INFO[b.kind];
+    const area = b.w * b.h;
+    const scale = b.kind === 'house' || b.kind === 'shop' ? area : 1;
+    s.population += k.residents * scale;
+    s.jobs += k.jobs * scale;
+    s.upkeep += upkeepOf(b);
+    switch (b.kind) {
+      case 'factory': s.industryLoad += area * (b.modern ? 0.5 : 1); break;
+      case 'warehouse': s.industryLoad += area * 0.3; break;
+      case 'construction': s.constructionSites++; break;
+      case 'shop': case 'market': case 'office': s.commercialTiles += area; break;
+      case 'park': case 'forest': s.parkTiles += area * (b.kind === 'forest' ? 2 : 1); break;
+      case 'hospital': s.hospitals++; break;
+      case 'school': s.schools++; break;
+      case 'parking': s.parkingTiles += area; break;
+      case 'busstop': s.busStops++; break;
+    }
+  }
+  for (const t of m.tiles) if (t === 'roadwork') s.constructionSites += 0.1;
+  for (let i = 0; i < m.tiles.length; i++) if (m.tiles[i] === 'park' && m.owner[i] < 0) s.parkTiles++;
+  return s;
+}
+
+export const BASE_STATS = computeMapStats(CITY);
