@@ -3,6 +3,7 @@ import { BUILDINGS } from '../config/balance';
 import { newGame, step } from './core';
 import { liveMap } from './build';
 import { assessCity, initialCity } from './city';
+import { districtBreakdown, districtFactors, updateAir } from './air';
 import { computeMapStats } from './map';
 import type { GameState, OfflineSummary } from './types';
 
@@ -54,7 +55,15 @@ export function validate(raw: unknown): GameState | null {
   merged.mapStats = computeMapStats(liveMap(merged));
   const c = merged.city as unknown as Record<string, unknown> | undefined;
   if (!c || !isNum(c.population) || (c.population as number) <= 0 || typeof c.demand !== 'object') merged.city = initialCity(merged.mapStats);
+  if (!Array.isArray(merged.proposals)) merged.proposals = [];
+  if (!Array.isArray(merged.policies)) merged.policies = [];
+  if (!Array.isArray(merged.delayed)) merged.delayed = [];
+  merged.finance = { ...base.finance, ...(merged.finance ?? {}) };
+  if (!Array.isArray(merged.finance.loans)) merged.finance.loans = [];
+  merged.districts = districtBreakdown(liveMap(merged));
   assessCity(merged);
+  updateAir(merged);
+  merged.air.factors = districtFactors(merged.air, merged.air.shares);
   merged.version = SAVE_VERSION;
   return merged;
 }

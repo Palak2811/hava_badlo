@@ -10,13 +10,15 @@ import { actualAqi, addNews, weekOf } from './core';
 // local copy: this module computes constants at load time, before core.ts finishes initialising
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 import { refreshMap, liveMap } from './build';
+import { updateAir } from './air';
+import { privateTripMult } from './approvals';
 import { BASE_STATS, districtAt, idx, roadAccess, tileAt, zoneAt, type CityMap } from './map';
 import { nextRandom } from './rng';
 import type { CitySim, GameState, MapStats, Placeable, TrafficStats, Zone } from './types';
 
 /* ------------------------------------------------------------------ traffic */
 
-function rawTraffic(st: MapStats, population: number, busLevel: number) {
+function rawTraffic(st: MapStats, population: number, busLevel: number, tripMult = 1) {
   const workforce = population * C.workforceShare;
   const commuters = Math.min(workforce, st.jobs);
   const trips = commuters * C.tripsPerWorker + population * C.tripsPerResident;
@@ -25,7 +27,7 @@ function rawTraffic(st: MapStats, population: number, busLevel: number) {
     st.busStops * C.busStopCapacity * (1 + C.depotStopBonus * busLevel) +
     busLevel * C.depotCapacity;
   const ptShare = clamp(ptCapacity / Math.max(1, trips), C.ptShareMin, C.ptShareMax);
-  const privateTrips = trips * (1 - ptShare) * (1 + C.parkingInduced * st.parkingTiles);
+  const privateTrips = trips * (1 - ptShare) * (1 + C.parkingInduced * st.parkingTiles) * tripMult;
   const roadCapacity = st.arterialTiles * C.arterialCapacity + st.streetTiles * C.streetCapacity;
   return { trips, ptShare, privateTrips, roadCapacity };
 }
@@ -37,8 +39,8 @@ const ROAD_K = BASE_RAW.privateTrips / (C.baseCongestion * BASE_RAW.roadCapacity
 const penalty = (cong: number) => 1 + C.congestionPenalty * Math.max(0, cong - C.congestionFree);
 const BASE_PENALTY = penalty(C.baseCongestion);
 
-export function computeTraffic(st: MapStats, population: number, busLevel: number): TrafficStats {
-  const r = rawTraffic(st, population, busLevel);
+export function computeTraffic(st: MapStats, population: number, busLevel: number, tripMult = 1): TrafficStats {
+  const r = rawTraffic(st, population, busLevel, tripMult);
   const congestion = r.privateTrips / Math.max(1, r.roadCapacity * ROAD_K);
   return {
     trips: Math.round(r.trips),
@@ -89,7 +91,7 @@ export function assessCity(s: GameState) {
     com: clamp(((retailNeed - st.retailJobs) / Math.max(1, retailNeed)) * 2 + 0.1, -1, 1),
     ind: clamp(unemployment * 3 + 0.1 - aqiPenalty * 0.3, -1, 1),
   };
-  c.traffic = computeTraffic(st, c.population, s.buildings.bus);
+  c.traffic = computeTraffic(st, c.population, s.buildings.bus, privateTripMult(s));
 }
 
 function migrate(s: GameState) {
@@ -150,7 +152,9 @@ export function growCity(s: GameState) {
       const uid = s.cityEdits.nextUid++;
       s.cityEdits.placed.push({ uid, kind, x, y, w: d.w, h: d.h, cost: 0, started: s.tick, done: s.tick + d.weeks * TICKS_PER_WEEK, built: false, organic: true });
       for (let dy = 0; dy < d.h; dy++) for (let dx = 0; dx < d.w; dx++) m.tiles[idx(x + dx, y + dy)] = 'lot';
-      s.res.budget += Math.round(d.cost * C.growth.devFeeShare);
+      const fee = Math.round(d.cost * C.growth.devFeeShare);
+      s.res.budget += fee;
+      s.finance.devFeesWeek += fee;
       const dn = districtAt(m, x, y)?.name ?? 'Delhi';
       where.set(dn, (where.get(dn) ?? 0) + 1);
       want--;
@@ -173,4 +177,5 @@ export function cityWeek(s: GameState) {
   assessCity(s);
   growCity(s);
   assessCity(s);
+  updateAir(s);
 }

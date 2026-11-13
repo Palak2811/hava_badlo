@@ -5,6 +5,7 @@ import './styles/app.css';
 import './styles/phase1.css';
 import './styles/build.css';
 import './styles/city.css';
+import './styles/economy.css';
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

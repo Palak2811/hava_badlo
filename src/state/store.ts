@@ -9,11 +9,15 @@ import { applyOffline, load, reset as resetSave, save } from '../engine/save';
 import type { BuildingId, GameState, OfflineSummary, Settings } from '../engine/types';
 import { KIND_INFO, buildMap, type CityMap, type Pick } from '../engine/map';
 import { buildRoad, demolish, demolitionInfo, placeBuilding, zoneArea } from '../engine/build';
+import { decideProposal, repealPolicy } from '../engine/approvals';
+import { applyRecovery } from '../engine/economy';
+import { PROPOSAL_MAP } from '../config/approvals';
 import type { Placeable, Zone } from '../engine/types';
 import { TUTORIAL } from '../config/content';
 import { sound } from '../audio/sound';
 
-export type Tab = 'city' | 'research' | 'news' | 'admin';
+export type Tab = 'city' | 'approvals' | 'research' | 'news' | 'admin' | 'finance';
+export type MapMode = 'normal' | 'pollution' | 'economy';
 export type Tool =
   | { type: 'place'; kind: Placeable; relocateFrom?: number }
   | { type: 'road'; start?: [number, number] }
@@ -48,6 +52,7 @@ interface Store {
   selected: BuildingId | null;
   inspect: Pick | null;
   tool: Tool | null;
+  mapMode: MapMode;
   buildOpen: boolean;
   hover: { x: number; y: number } | null;
   eventOpen: string | null;
@@ -62,6 +67,10 @@ interface Store {
   select: (b: BuildingId | null) => void;
   onPick: (p: Pick | null) => void;
   setTool: (t: Tool | null) => void;
+  setMapMode: (m: MapMode) => void;
+  decide: (uid: number, approve: boolean) => void;
+  repeal: (id: string) => void;
+  recover: (id: 'grant' | 'loan' | 'investment' | 'cuts') => void;
   toggleBuild: (open?: boolean) => void;
   setHover: (h: { x: number; y: number } | null) => void;
   toolClick: (x: number, y: number) => void;
@@ -136,6 +145,7 @@ export const useGame = create<Store>((set, get) => {
     selected: null,
     inspect: null,
     tool: null,
+    mapMode: 'normal',
     buildOpen: false,
     hover: null,
     eventOpen: null,
@@ -174,6 +184,19 @@ export const useGame = create<Store>((set, get) => {
       if (p) get().tutorialEvent('inspect');
     },
     setTool: (tool) => set({ tool, selected: null, inspect: null }),
+    setMapMode: (mapMode) => {
+      sound.play('click');
+      set({ mapMode });
+    },
+    decide: (uid, approve) => {
+      mutate((s) => decideProposal(s, uid, approve), approve ? 'buy' : 'click');
+    },
+    repeal: (id) => {
+      mutate((s) => repealPolicy(s, id), 'click');
+    },
+    recover: (id) => {
+      mutate((s) => applyRecovery(s, id), 'buy');
+    },
     toggleBuild: (open) => {
       const next = open ?? !get().buildOpen;
       sound.play('click');
@@ -261,10 +284,17 @@ export const useGame = create<Store>((set, get) => {
     tickReal: (n) => {
       if (n <= 0) return;
       const s = structuredClone(get().game);
-      const before = { ach: s.achievements.length, events: s.events.length, budget: s.res.budget, ended: s.ended };
+      const before = { ach: s.achievements.length, events: s.events.length, budget: s.res.budget, ended: s.ended, prop: s.proposalsSeen };
       for (let i = 0; i < n; i++) step(s);
       set({ game: s });
       announce(before, s);
+      if (s.proposalsSeen > before.prop) {
+        const p = s.proposals[s.proposals.length - 1];
+        if (p) {
+          sound.play('notify');
+          get().toast({ kind: 'info', title: `📋 ${PROPOSAL_MAP[p.templateId].title}`, body: 'A new proposal is waiting in Approvals.' });
+        }
+      }
       if (s.ended && !before.ended) {
         sound.play('achievement');
         get().persist();

@@ -33,6 +33,7 @@ export default function CityView() {
           onPick: (p: import('../engine/map').Pick | null) => useGame.getState().onPick(p),
           getMap: () => getLiveMap(useGame.getState().game),
           getTool: () => useGame.getState().tool,
+          getMode: () => useGame.getState().mapMode,
           onToolClick: (x: number, y: number) => useGame.getState().toolClick(x, y),
           onHover: (h: { x: number; y: number } | null) => useGame.getState().setHover(h),
           onCamera: (k: 'pan' | 'zoom') => useGame.getState().tutorialEvent(k),

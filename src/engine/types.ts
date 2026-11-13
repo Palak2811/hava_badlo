@@ -38,6 +38,8 @@ export interface Modifier {
   coverage?: number;
   /** Flat upkeep added to weekly maintenance (₹). */
   upkeepPerWeek?: number;
+  /** Multiplier on private vehicle trips (charges, parking fees). */
+  privateTripMult?: number;
 }
 
 export interface Cost {
@@ -211,6 +213,15 @@ export interface GameState {
   mapStats: MapStats;
   /** Residents, employment, demand and traffic (updated weekly). */
   city: CitySim;
+  /** Per-neighbourhood totals (derived from the map). */
+  districts: Record<string, DistrictStats>;
+  /** Neighbourhood air model (derived). */
+  air: AirState;
+  proposals: Proposal[];
+  proposalsSeen: number;
+  policies: PolicyInstance[];
+  delayed: Delayed[];
+  finance: Finance;
   phaseReports: PhaseReport[];
   reportPending: boolean;
   briefingSeen: number;
@@ -270,6 +281,77 @@ export interface TrafficStats {
   congestion: number;
   /** multiplier on transport emissions relative to the starting city */
   transportMult: number;
+}
+
+export interface DistrictStats {
+  capacity: number;
+  jobs: number;
+  retailJobs: number;
+  officeJobs: number;
+  industryLoad: number;
+  parkingTiles: number;
+  arterial: number;
+  street: number;
+  roadwork: number;
+  sites: number;
+  parkTiles: number;
+  land: number;
+  busTerminal: number;
+}
+
+export interface AirState {
+  /** spatial weight of each source per district (land-area mean = 1) */
+  w: Record<Source, Record<string, number>>;
+  /** residents per district */
+  pop: Record<string, number>;
+  /** local relief from parks (0–0.25) */
+  relief: Record<string, number>;
+  /** latest emission shares by source */
+  shares: Record<Source, number>;
+  /** concentration multiplier per district */
+  factors: Record<string, number>;
+}
+
+export interface PolicyInstance {
+  id: string;
+  name: string;
+  since: number;
+  /** tick when it lapses, or null for standing policies */
+  until: number | null;
+  modifier: Modifier;
+  repealable: boolean;
+  repealDeltas?: Deltas;
+}
+
+export interface Proposal {
+  uid: number;
+  templateId: string;
+  arrived: number;
+  expires: number;
+  /** a concrete site for proposals that put up a building */
+  site?: { x: number; y: number };
+  /** template-specific numbers fixed when the proposal arrives */
+  amount: number;
+}
+
+export interface Delayed {
+  at: number;
+  label: string;
+  deltas?: Deltas;
+  policy?: PolicyInstance;
+  endPolicy?: string;
+  news: string;
+}
+
+export interface Loan { principal: number; perWeek: number; weeksLeft: number }
+
+export interface Finance {
+  loans: Loan[];
+  grantPhase: number;
+  investmentPhase: number;
+  cutsUntil: number;
+  devFeesWeek: number;
+  devFeesLastWeek: number;
 }
 
 export interface CitySim {

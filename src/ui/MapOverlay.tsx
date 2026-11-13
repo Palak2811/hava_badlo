@@ -6,7 +6,10 @@ import { H_ARTERIALS, KIND_INFO, V_ARTERIALS, areaStats, districtAt, tileAt, typ
 import { demolitionInfo } from '../engine/build';
 import { PLACEABLE_MAP } from '../config/build';
 import { TICKS_PER_WEEK } from '../config/balance';
-import { getLiveMap } from '../state/store';
+import { getLiveMap, type MapMode } from '../state/store';
+import { districtAqi, topSources } from '../engine/air';
+import { districtRevenue } from '../engine/economy';
+import { aqiBand } from '../engine/core';
 import { facilityWeeks } from '../engine/core';
 import { congestionLabel } from '../engine/city';
 import { cityControls } from '../city/controls';
@@ -255,6 +258,10 @@ export function InspectPanel() {
         </div>
       </div>
       <p className="ctx-desc">{d.blurb}</p>
+      <div className="district-air" style={{ ['--c' as string]: aqiBand(districtAqi(g.air, g.conc, d.id)).color }}>
+        <b>{districtAqi(g.air, g.conc, d.id)}</b>
+        <span><small>Local AQI · {aqiBand(districtAqi(g.air, g.conc, d.id)).label}</small>Mostly {topSources(g.air, d.id).map((k) => SOURCE_META[k].label.toLowerCase()).join(' & ')}</span>
+      </div>
       <div className="mini-stats">
         <div><small>Residents</small><b>{fmtPeople(residents)}</b></div>
         <div><small>Jobs</small><b>{fmtPeople(st.jobs)}</b></div>
@@ -263,11 +270,31 @@ export function InspectPanel() {
       <dl className="ctx-facts">
         <dt>Mostly</dt><dd>{top.map(([k, n]) => `${n} ${KIND_NAMES[k as Kind][n === 1 ? 0 : 1]}`).join(', ')}</dd>
         <dt>Work</dt><dd>{workers > 0 ? `${num(st.jobs / workers, 1)} jobs per local worker` : 'No residents; a pure job centre'}</dd>
+        <dt>Revenue</dt><dd>{inr(districtRevenue(g, d.id))}/wk</dd>
         <dt>Green cover</dt><dd>{st.greenTiles} park tiles</dd>
         {sites > 0 && (<><dt>Projects</dt><dd>{sites} under construction</dd></>)}
       </dl>
       <p className="hint">Neighbourhood-level air quality comes with the pollution map mode.</p>
     </section>
+  );
+}
+
+export function MapModes() {
+  const mode = useGame((s) => s.mapMode);
+  const setMode = useGame((s) => s.setMapMode);
+  const modes: { id: MapMode; label: string; icon: 'city' | 'wind' | 'coins' }[] = [
+    { id: 'normal', label: 'City', icon: 'city' },
+    { id: 'pollution', label: 'Pollution', icon: 'wind' },
+    { id: 'economy', label: 'Economy', icon: 'coins' },
+  ];
+  return (
+    <div className="map-modes" role="radiogroup" aria-label="Map mode">
+      {modes.map((m) => (
+        <button key={m.id} role="radio" aria-checked={mode === m.id} className={mode === m.id ? 'on' : ''} onClick={() => setMode(m.id)} title={`${m.label} view`}>
+          <Icon name={m.icon} size={16} /> <span>{m.label}</span>
+        </button>
+      ))}
+    </div>
   );
 }
 

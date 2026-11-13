@@ -12,6 +12,7 @@ import {
 } from './map';
 import type { Deltas, GameState, Modifier, Placeable, Zone } from './types';
 import { CITY_SIM } from '../config/city';
+import { districtBreakdown, updateAir } from './air';
 
 /* ------------------------------------------------------------------ map access */
 
@@ -25,7 +26,10 @@ function upkeepOf(b: MapBuilding) {
 /** Recompute derived map numbers after any edit. */
 export function refreshMap(s: GameState) {
   s.mapVersion += 1;
-  s.mapStats = computeMapStats(liveMap(s), upkeepOf);
+  const m = liveMap(s);
+  s.mapStats = computeMapStats(m, upkeepOf);
+  s.districts = districtBreakdown(m);
+  updateAir(s);
 }
 
 export function placeableUnlocked(s: GameState, def: PlaceableDef) {
@@ -258,7 +262,6 @@ export function advanceConstruction(s: GameState) {
 /** How the current map (vs the original city) shifts emissions, revenue, trust and upkeep. */
 export function mapModifier(s: GameState): Modifier {
   const st = s.mapStats, b = BASE_STATS, c = s.city;
-  const basePop = b.population * CITY_SIM.startOccupancy;
   const parkDelta = st.parkTiles - b.parkTiles;
   const unemploymentHit = Math.max(0, c.unemployment - CITY_SIM.unemploymentTolerance) * CITY_SIM.unemploymentTrust;
   const crowdHit = Math.max(0, c.overcrowding - CITY_SIM.overcrowdingTolerance) * CITY_SIM.overcrowdingTrust;
@@ -274,9 +277,6 @@ export function mapModifier(s: GameState): Modifier {
       dust: greenControl,
       other: greenControl,
     },
-    incomePerWeek:
-      0.08 * (c.population - basePop) + 0.1 * (st.jobs - b.jobs) + 20 * (st.commercialTiles - b.commercialTiles) +
-      40 * (st.industryLoad - b.industryLoad) + 25 * (st.parkingTiles - b.parkingTiles),
     trustPerWeek: 0.5 * (st.hospitals - b.hospitals) + 0.25 * (st.schools - b.schools) + 0.004 * parkDelta - unemploymentHit - crowdHit,
     participationPerWeek: 0.1 * (st.schools - b.schools),
     upkeepPerWeek: st.upkeep,

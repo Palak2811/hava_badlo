@@ -3,7 +3,9 @@ import { LOADING_LINES } from '../config/content';
 import { phaseOf } from '../engine/core';
 import { useGame, type Tab } from '../state/store';
 import { Hud } from './Hud';
-import { ContextPanel, EventChip, InspectPanel, ObjectivesWidget, ZoomControls } from './MapOverlay';
+import { ContextPanel, EventChip, InspectPanel, MapModes, ObjectivesWidget, ZoomControls } from './MapOverlay';
+import ApprovalsScreen from './screens/ApprovalsTab';
+import FinanceScreen from './screens/FinanceTab';
 import { Intro } from './Intro';
 import { BuildPalette, ToolPanel } from './BuildPalette';
 import { CityPulse } from './CityPulse';
@@ -19,6 +21,7 @@ const CityView = lazy(() => import('../city/CityView'));
 
 const NAV: { id: Tab; label: string; icon: IconName }[] = [
   { id: 'city', label: 'City', icon: 'city' },
+  { id: 'approvals', label: 'Approvals', icon: 'check' },
   { id: 'research', label: 'Research', icon: 'flask' },
   { id: 'news', label: 'News & Events', icon: 'news' },
   { id: 'admin', label: 'Administration', icon: 'landmark' },
@@ -93,7 +96,7 @@ function Loading({ onDone }: { onDone: () => void }) {
 
 function Drawer({ tab }: { tab: Tab }) {
   const setTab = useGame((s) => s.setTab);
-  const item = NAV.find((n) => n.id === tab)!;
+  const item = NAV.find((n) => n.id === tab) ?? { id: 'finance' as Tab, label: 'Finance', icon: 'wallet' as IconName };
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === 'Escape' && setTab('city');
     window.addEventListener('keydown', k);
@@ -106,6 +109,8 @@ function Drawer({ tab }: { tab: Tab }) {
         <button className="icon-btn" onClick={() => setTab('city')} aria-label="Back to city"><Icon name="x" /></button>
       </header>
       <div className="drawer-body">
+        {tab === 'approvals' && <ApprovalsScreen />}
+        {tab === 'finance' && <FinanceScreen />}
         {tab === 'research' && <ResearchScreen />}
         {tab === 'news' && <NewsScreen />}
         {tab === 'admin' && <AdminScreen />}
@@ -121,6 +126,7 @@ export default function App() {
   const setTab = useGame((s) => s.setTab);
   const pending = useGame((s) => s.game.events.length);
   const buildOpen = useGame((s) => s.buildOpen);
+  const proposals = useGame((s) => s.game.proposals.length);
   const toggleBuild = useGame((s) => s.toggleBuild);
   const loadNotice = useGame((s) => s.loadNotice);
   const toast = useGame((s) => s.toast);
@@ -146,6 +152,7 @@ export default function App() {
       <ContextPanel />
       <InspectPanel />
       <ZoomControls />
+      <MapModes />
       {!buildOpen && (
         <div className="left-stack">
           <CityPulse />
@@ -166,6 +173,7 @@ export default function App() {
             <Icon name={n.icon} size={20} />
             <span>{n.label}</span>
             {n.id === 'news' && pending > 0 && <em className="dot">{pending}</em>}
+            {n.id === 'approvals' && proposals > 0 && <em className="dot">{proposals}</em>}
           </button>
         ))}
       </nav>

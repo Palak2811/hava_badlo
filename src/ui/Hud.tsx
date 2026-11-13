@@ -33,7 +33,7 @@ export function Hud() {
       <div className="hud-brand">Hawa <b>Badlo</b></div>
 
       <div className="hud-stats">
-        <div className="stat stat-money" title={`Income ${inr(r.income)}/week − upkeep ${inr(r.maintenance)}/week`}>
+        <button className="stat stat-money" onClick={() => useGame.getState().setTab('finance')} title={`Income ${inr(r.income)}/week − spending ${inr(r.maintenance)}/week · click for finances`}>
           <span className="stat-icon money"><Icon name="wallet" /></span>
           <span className="stat-text">
             <small>Treasury</small>
@@ -43,7 +43,7 @@ export function Hud() {
           <span className="floaters" aria-hidden>
             {floaters.map((f) => <i key={f.id} style={{ color: f.color }}>{f.text}</i>)}
           </span>
-        </div>
+        </button>
 
         <div className={`stat stat-aqi ${tAqi > 0 ? 'flash-bad' : tAqi < 0 ? 'flash-good' : ''}`} title="Actual air quality from independent sensors (simulated). Lower is better.">
           <span className="stat-icon" style={{ background: band.color }}><Icon name="wind" /></span>

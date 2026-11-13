@@ -6,7 +6,10 @@ import {
 } from '../engine/map';
 import { checkPlacement, checkRoad, demolitionInfo, roadPath, zoneTiles } from '../engine/build';
 import { PLACEABLE_MAP, ZONE_INFO } from '../config/build';
-import type { Tool } from '../state/store';
+import type { MapMode, Tool } from '../state/store';
+import { districtAqi } from '../engine/air';
+import { districtRevenue } from '../engine/economy';
+import { aqiBand } from '../engine/core';
 import { BASE_TRAFFIC } from '../engine/city';
 import { KIND_INFO } from '../engine/map';
 import type { BuildingId, GameState } from '../engine/types';
@@ -22,6 +25,7 @@ export interface CityBridge {
   getState: () => GameState;
   getMap: () => CityMap;
   getTool: () => Tool | null;
+  getMode: () => MapMode;
   onToolClick: (x: number, y: number) => void;
   onHover: (t: { x: number; y: number } | null) => void;
   getHighlight: () => Pick | null;
@@ -76,6 +80,10 @@ export class CityScene extends Phaser.Scene {
   private map: CityMap = CITY;
   private zoneLayer!: Phaser.GameObjects.Graphics;
   private toolKey = '';
+  private modeLayer!: Phaser.GameObjects.Graphics;
+  private modeLabels!: Phaser.GameObjects.Container;
+  private modeT = 0;
+  private modeShown: MapMode = 'normal';
   private world!: Phaser.GameObjects.Container;
   private ground!: Phaser.GameObjects.Graphics;
   private blds!: Phaser.GameObjects.Graphics;
@@ -136,9 +144,11 @@ export class CityScene extends Phaser.Scene {
     this.traffic = this.add.container(0, 0);
     this.plotLayer = this.add.container(0, 0);
     this.overlay = this.add.graphics();
+    this.modeLayer = this.add.graphics();
+    this.modeLabels = this.add.container(0, 0);
     this.smoke = this.add.particles(0, 0, 'puff', { lifespan: 4200, speedX: { min: 6, max: 22 }, speedY: { min: -26, max: -10 }, scale: { start: 0.5, end: 2.4 }, alpha: { start: 0.45, end: 0 }, tint: 0x7a7670, frequency: 140 });
     this.dust = this.add.particles(0, 0, 'puff', { lifespan: 2600, speedX: { min: -10, max: 14 }, speedY: { min: -12, max: -2 }, scale: { start: 0.4, end: 1.6 }, alpha: { start: 0.4, end: 0 }, tint: 0xcfb27c, frequency: 260 });
-    this.world.add([this.ground, this.zoneLayer, this.blds, this.trees, this.traffic, this.plotLayer, this.smoke, this.dust, this.overlay]);
+    this.world.add([this.ground, this.zoneLayer, this.blds, this.trees, this.traffic, this.plotLayer, this.smoke, this.dust, this.modeLayer, this.modeLabels, this.overlay]);
 
     this.haze = this.add.rectangle(0, 0, 10, 10, 0xa59c87, 0).setOrigin(0);
     this.smog = this.add.particles(0, 0, 'puff', { lifespan: 10000, speedX: { min: -6, max: 10 }, speedY: { min: -3, max: 3 }, scale: { start: 3, end: 6 }, alpha: { start: 0.35, end: 0 }, tint: 0xb3a88f, frequency: 160 });
@@ -159,7 +169,13 @@ export class CityScene extends Phaser.Scene {
     for (let i = 0; i < 70; i++) this.spawnVehicle(this.bridge.getState(), true);
 
     cityControls.zoomBy = (f) => this.zoomAt(f, this.scale.width / 2, this.scale.height / 2);
-    cityControls.reset = () => this.fit(true);
+    cityControls.reset = () => {
+      this.fit(false);
+      const c = this.cameras.main;
+      this.tweens.add({ targets: c, zoom: this.minZoom, duration: 450, ease: 'Sine.easeInOut' });
+      c.pan(WW / 2, WH / 2, 450, 'Sine.easeInOut');
+      this.bridge.onCamera('zoom');
+    };
     cityControls.focusTile = (x, y, z) => {
       const c = this.cameras.main;
       this.tweens.add({ targets: c, zoom: Phaser.Math.Clamp(z ?? 1.1, this.minZoom, 2.5), duration: 500, ease: 'Sine.easeInOut' });
@@ -671,6 +687,64 @@ export class CityScene extends Phaser.Scene {
     }
   }
 
+  /* ------------------------------------------------------------ map modes */
+
+  /** Pollution heatmap or economy view, drawn per neighbourhood with labels. */
+  private drawMode(s: GameState, mode: MapMode) {
+    const g = this.modeLayer;
+    g.clear();
+    this.modeLabels.removeAll(true);
+    if (mode === 'normal') return;
+    const revs = this.map.districts.map((d) => districtRevenue(s, d.id) / Math.max(1, d.w * d.h));
+    const maxRev = Math.max(...revs, 1);
+    this.map.districts.forEach((d, i) => {
+      let color: number, label: string, sub: string;
+      if (mode === 'pollution') {
+        const aqi = districtAqi(s.air, s.conc, d.id);
+        color = hex(aqiBand(aqi).color);
+        label = `${aqi}`;
+        sub = aqiBand(aqi).label;
+      } else {
+        const rev = districtRevenue(s, d.id);
+        const t = revs[i] / maxRev;
+        color = mix(0xe76f51, 0x2a9d8f, Math.sqrt(t));
+        label = `₹${Math.round(rev).toLocaleString('en-IN')}/wk`;
+        sub = t < 0.25 ? 'Struggling' : t > 0.7 ? 'Thriving' : 'Steady';
+      }
+      g.fillStyle(color, 0.42);
+      g.fillRoundedRect(d.x * CELL + 6, d.y * CELL + 6, d.w * CELL - 12, d.h * CELL - 12, 24);
+      g.lineStyle(3, color, 0.9);
+      g.strokeRoundedRect(d.x * CELL + 6, d.y * CELL + 6, d.w * CELL - 12, d.h * CELL - 12, 24);
+      const cx = (d.x + d.w / 2) * CELL, cy = (d.y + d.h / 2) * CELL;
+      const box = this.add.container(cx, cy);
+      const name = this.add.text(0, -26, d.name, { fontFamily: 'Inter, sans-serif', fontSize: '20px', fontStyle: '700', color: '#14213d' }).setOrigin(0.5);
+      const big = this.add.text(0, 6, label, { fontFamily: 'Inter, sans-serif', fontSize: mode === 'pollution' ? '44px' : '30px', fontStyle: '800', color: '#14213d' }).setOrigin(0.5);
+      const small = this.add.text(0, 40, sub, { fontFamily: 'Inter, sans-serif', fontSize: '18px', fontStyle: '600', color: '#4a5470' }).setOrigin(0.5);
+      const w = Math.max(name.width, big.width, small.width) + 36;
+      const bg = this.add.graphics();
+      bg.fillStyle(0xffffff, 0.92);
+      bg.fillRoundedRect(-w / 2, -48, w, 112, 18);
+      bg.fillStyle(color, 1);
+      bg.fillRoundedRect(-w / 2, -48, 8, 112, { tl: 18, bl: 18, tr: 0, br: 0 });
+      box.add([bg, name, big, small]);
+      this.modeLabels.add(box);
+    });
+    if (mode === 'pollution') {
+      // hotspots: chimneys and construction dust
+      for (const b of this.map.buildings) {
+        if (b.removed) continue;
+        const cx = (b.x + b.w / 2) * CELL, cy = (b.y + b.h / 2) * CELL;
+        if (b.kind === 'factory' && !b.progress) {
+          g.fillStyle(0x7f1d1d, b.modern ? 0.18 : 0.32);
+          g.fillCircle(cx, cy, b.modern ? 40 : 60);
+        } else if (b.kind === 'construction' || b.progress) {
+          g.fillStyle(0xd97706, 0.28);
+          g.fillCircle(cx, cy, 40);
+        }
+      }
+    }
+  }
+
   /* ------------------------------------------------------------ highlight */
 
   private bar(x: number, y: number, w: number, frac: number) {
@@ -897,6 +971,18 @@ export class CityScene extends Phaser.Scene {
     if (tk !== this.toolKey) {
       this.toolKey = tk;
       this.drawZones(!!tool && tool.type !== 'demolish');
+    }
+    const mode = this.bridge.getMode();
+    this.modeT -= delta;
+    if (mode !== this.modeShown || this.modeT <= 0 || mapChanged) {
+      if (mode !== this.modeShown) {
+        this.modeLayer.setAlpha(0);
+        this.modeLabels.setAlpha(0);
+        this.tweens.add({ targets: [this.modeLayer, this.modeLabels], alpha: 1, duration: 280 });
+      }
+      this.modeShown = mode;
+      this.modeT = 800;
+      this.drawMode(s, mode);
     }
     this.drawOverlay();
 

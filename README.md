@@ -9,7 +9,7 @@ A satirical idle / city-management game set in Delhi. **52 weeks. One city. One 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 94 unit tests (Vitest)
+npm test           # 112 unit tests (Vitest)
 npm run lint
 npm run typecheck
 npm run build      # production build into dist/
@@ -26,11 +26,16 @@ src/
     balance.ts    ← every balance number: start resources, buildings, research, optics, seasons, pollution coefficients
     events.ts     ← 16 events with choices, costs, timed effects and state-dependent outcomes
     city.ts       ← living-city balance: occupancy, trips, transit capacity, road capacity, growth caps
+    economy.ts    ← revenue rates and recovery terms
+    approvals.ts  ← the ten proposal templates with their impacts
     build.ts      ← build catalogue: costs, build weeks, zones, upkeep, demolition compensation
     content.ts    ← achievements, objectives, stage goals, endings, news templates, tutorial
   engine/         ← pure TypeScript simulation; no DOM and no rendering, deterministic per seed
     map.ts        ← 64×40 grid city: roads, river, 12 neighbourhoods, ~500 buildings, plots, metro, bus stops
     build.ts      ← placement rules, construction, demolition/relocation, roads, zoning; map → simulation modifier
+    air.ts        ← neighbourhood air: source distribution, spill-over, park relief, exposure-weighted city AQI
+    economy.ts    ← revenue streams, loans, recovery options
+    approvals.ts  ← proposals, standing policies, delayed consequences
     city.ts       ← weekly living city: migration, employment, RCI demand, private development, traffic model
     core.ts       ← modifiers, pollution model, economy, actions, events, progression, endings, tick
     save.ts       ← versioned localStorage save, validation/migration, corrupt-save recovery, offline progress
@@ -56,7 +61,7 @@ tests/engine.test.ts
 - [x] Phase 1: opening story, Secretary tutorial, grid city, camera pan/zoom, selection of buildings, roads and neighbourhoods
 - [x] Phase 2: placement & demolition, relocation, road building, zoning, construction timers
 - [x] Phase 3: residents & migration, jobs & unemployment, RCI demand, organic growth, traffic & public transport model
-- [ ] Phase 4: neighbourhood AQI, pollution & economy map modes, approvals
+- [x] Phase 4: neighbourhood AQI (population-weighted exposure), pollution & economy map modes, revenue streams, finance & recovery, pending approvals, policies, delayed consequences
 - [ ] Phase 5: weekly settlement, objectives & election evaluation
 - [ ] Phase 6: polish & balancing
 

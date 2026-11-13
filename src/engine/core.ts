@@ -20,6 +20,9 @@ import { nextRandom } from './rng';
 import { BASE_STATS } from './map';
 import { advanceConstruction, mapModifier } from './build';
 import { cityWeek, initialCity } from './city';
+import { BASE_AIR, BASE_DISTRICTS, districtFactors, exposureAqi, sharesOf } from './air';
+import { financeModifier, weeklyFinance } from './economy';
+import { advanceApprovals, policyModifiers, rollProposals } from './approvals';
 import { FACILITY_WEEKS } from '../config/build';
 import { SOURCES, type PhaseSnap, type BuildingId, type Cost, type Deltas, type EndingId, type GameState, type Modifier, type NewsKind, type Source } from './types';
 
@@ -80,6 +83,13 @@ export function newGame(seed = Date.now() % 2147483647, now = Date.now()): GameS
     mapVersion: 0,
     mapStats: { ...BASE_STATS },
     city: initialCity(BASE_STATS),
+    districts: structuredClone(BASE_DISTRICTS),
+    air: structuredClone(BASE_AIR),
+    proposals: [],
+    proposalsSeen: 0,
+    policies: [],
+    delayed: [],
+    finance: { loans: [], grantPhase: 0, investmentPhase: 0, cutsUntil: 0, devFeesWeek: 0, devFeesLastWeek: 0 },
   };
   // settle the atmosphere to day-1 steady state
   const target = steadyConc(s, false);
@@ -125,6 +135,8 @@ export function collectModifiers(s: GameState): Modifier[] {
   }
   if (s.stats.purifiers > 0) mods.push({ control: { other: Math.min(0.05, 0.005 * s.stats.purifiers) } });
   mods.push(mapModifier(s));
+  mods.push(financeModifier(s));
+  mods.push(...policyModifiers(s));
   for (const e of s.effects) mods.push(e.modifier);
   return mods;
 }
@@ -227,8 +239,9 @@ export function concToAqi(c: number): number {
   return 500;
 }
 
-export const actualAqi = (s: GameState) => concToAqi(s.conc);
-export const baselineAqi = (s: GameState) => concToAqi(s.baselineConc);
+/** City AQI = population-weighted exposure across neighbourhoods (see air.ts). */
+export const actualAqi = (s: GameState) => exposureAqi(s.air, s.conc);
+export const baselineAqi = (s: GameState) => exposureAqi(BASE_AIR, s.baselineConc);
 export function officialAqi(s: GameState, a: Aggregate = agg(s)) {
   let bias = a.perceptionBias;
   if (s.res.credibility < CREDIBILITY.challengedBelow) bias *= 0.5; // reports are being challenged
@@ -273,6 +286,7 @@ export function finishAllConstruction(s: GameState) {
   for (const r of s.cityEdits.roads) if (!r.built) r.done = s.tick;
   advanceFacilities(s);
   advanceConstruction(s);
+  advanceApprovals(s);
 }
 
 /** Finish facilities whose construction is complete (called every tick). */
@@ -737,6 +751,9 @@ export function step(s: GameState, opts: { offline?: boolean } = {}) {
   const btarget = steadyConc(s, true, a);
   s.conc += (target - s.conc) * POLLUTION.relaxation;
   s.baselineConc += (btarget - s.baselineConc) * POLLUTION.relaxation;
+  const shares = sharesOf(emissions(s, false, a));
+  s.air.shares = shares;
+  s.air.factors = districtFactors(s.air, shares);
   const newAqi = actualAqi(s);
   s.stats.highestAqi = Math.max(s.stats.highestAqi, newAqi);
   s.stats.lowestAqi = Math.min(s.stats.lowestAqi, newAqi);
@@ -750,6 +767,7 @@ export function step(s: GameState, opts: { offline?: boolean } = {}) {
   s.tick += 1;
   advanceFacilities(s);
   advanceConstruction(s);
+  advanceApprovals(s);
 
   // expiries
   s.effects = s.effects.filter((e) => e.until > s.tick);
@@ -789,6 +807,8 @@ function endOfWeek(s: GameState, offline: boolean) {
   const prevWeek = weekOf(s) - 1;
   evaluateObjectives(s, true);
   cityWeek(s);
+  weeklyFinance(s);
+  if (!offline) rollProposals(s);
   s.weekly.push({ week: prevWeek, aqi: actualAqi(s), official: officialAqi(s), baseline: baselineAqi(s), trust: Math.round(s.res.trust), credibility: Math.round(s.res.credibility) });
   if (prevWeek % WEEKS_PER_PHASE === 0 && !s.sandbox) closePhase(s);
 

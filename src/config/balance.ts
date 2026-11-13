@@ -27,7 +27,8 @@ export const START_PARTICIPATION = 10;
 
 export const ECONOMY = {
   /** Base central allocation, ₹ per in-game day. */
-  baseIncomePerWeek: 1800,
+  /** central allocation (see also config/economy.ts for city revenue streams) */
+  baseIncomePerWeek: 900,
   /** income multiplier = trustIncomeBase + trust/100 * trustIncomeSlope */
   trustIncomeBase: 0.6,
   trustIncomeSlope: 0.6,

@@ -58,7 +58,7 @@ describe('economy', () => {
     s.res.trust = 0;
     const lo = incomePerWeek(s);
     expect(hi).toBeGreaterThan(lo);
-    expect(lo).toBeCloseTo(ECONOMY.baseIncomePerWeek * ECONOMY.trustIncomeBase);
+    expect(hi - lo).toBeCloseTo(ECONOMY.baseIncomePerWeek * ECONOMY.trustIncomeSlope);
   });
 
   it('maintenance reduces net income and budget cannot fall below the debt floor', () => {
