@@ -1,7 +1,7 @@
 export type Source = 'transport' | 'dust' | 'industry' | 'agriculture' | 'waste' | 'other';
 export const SOURCES: Source[] = ['transport', 'dust', 'industry', 'agriculture', 'waste', 'other'];
 
-export type SeasonId = 'monsoon' | 'postmonsoon' | 'winter';
+export type SeasonId = 'monsoon' | 'postmonsoon' | 'winter' | 'spring';
 
 export type BuildingId =
   | 'monitor'
@@ -21,15 +21,15 @@ export interface Modifier {
   emissionMult?: Partial<Record<Source, number>>;
   /** Multiplier on atmospheric dispersion (rain > 1, inversion < 1). */
   dispersionMult?: number;
-  incomePerDay?: number;
+  incomePerWeek?: number;
   incomeMult?: number;
   maintenanceMult?: number;
-  researchPerDay?: number;
+  researchPerWeek?: number;
   researchMult?: number;
-  trustPerDay?: number;
-  pressurePerDay?: number;
-  capitalPerDay?: number;
-  participationPerDay?: number;
+  trustPerWeek?: number;
+  pressurePerWeek?: number;
+  capitalPerWeek?: number;
+  participationPerWeek?: number;
   /** Fraction by which the OFFICIAL AQI under-reports the actual AQI. */
   perceptionBias?: number;
   /** Multiplier on negative event severity. */
@@ -90,7 +90,7 @@ export type NewsKind = 'breaking' | 'alert' | 'gov' | 'citizen' | 'viral' | 'sat
 export interface NewsItem {
   id: number;
   tick: number;
-  day: number;
+  week: number;
   kind: NewsKind;
   headline: string;
   body?: string;
@@ -98,7 +98,7 @@ export interface NewsItem {
 
 export interface Sample {
   tick: number;
-  day: number;
+  week: number;
   aqi: number;
   official: number;
   baseline: number;
@@ -142,7 +142,7 @@ export interface GameStats {
   upgradesBought: number;
   cacEarned: number;
   /** sum of (baseline - actual) AQI integrated per day */
-  aqiReductionDays: number;
+  aqiReductionWeeks: number;
   objectivesDone: number;
 }
 
@@ -159,7 +159,7 @@ export interface GameState {
   seed: number;
   rngState: number;
   tick: number;
-  speed: 0 | 1 | 2 | 4;
+  speed: 0 | 1 | 2 | 3;
   res: Resources;
   participation: number;
   exposureRisk: number;
@@ -173,7 +173,7 @@ export interface GameState {
   windFactor: number;
   effects: TempEffect[];
   events: ActiveEvent[];
-  eventHistory: { defId: string; choice: number; day: number }[];
+  eventHistory: { defId: string; choice: number; week: number }[];
   eventCooldown: Record<string, number>;
   opticsCooldown: Record<string, number>;
   committeesPending: PendingCommittee[];
@@ -181,7 +181,7 @@ export interface GameState {
   news: NewsItem[];
   newsSeq: number;
   history: Sample[];
-  daily: { day: number; aqi: number; official: number; baseline: number; trust: number; credibility: number }[];
+  weekly: { week: number; aqi: number; official: number; baseline: number; trust: number; credibility: number }[];
   objectives: DailyObjective[];
   stage: number;
   stageObjectivesDone: string[];
@@ -190,19 +190,21 @@ export interface GameState {
   ended: EndingId | null;
   sandbox: boolean;
   tutorialDone: boolean;
+  introDone: boolean;
+  tutorialStep: number;
   lastActive: number;
   aqiRenamed: boolean;
-  pressureMaxedDays: number;
-  lastOpticsDay: number;
-  weekStart: WeekSnap;
-  weekReports: WeekReport[];
+  pressureMaxedWeeks: number;
+  lastOpticsWeek: number;
+  phaseStart: PhaseSnap;
+  phaseReports: PhaseReport[];
   reportPending: boolean;
   briefingSeen: number;
 }
 
-export interface WeekSnap {
+export interface PhaseSnap {
+  phase: number;
   week: number;
-  day: number;
   budget: number;
   aqi: number;
   baseline: number;
@@ -213,10 +215,10 @@ export interface WeekSnap {
   newsSeq: number;
 }
 
-export interface WeekReport {
-  week: number;
-  start: WeekSnap;
-  end: WeekSnap;
+export interface PhaseReport {
+  phase: number;
+  start: PhaseSnap;
+  end: PhaseSnap;
   headlines: string[];
   consequences: string[];
 }

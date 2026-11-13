@@ -1,16 +1,19 @@
 import { useRef } from 'react';
 import { CAMPAIGN_WEEKS } from '../config/balance';
-import { actualAqi, aqiBand, dayOfWeek, rates, seasonOf, dayOf, weekOf } from '../engine/core';
+import { PHASE_BRIEFS } from '../config/content';
+import { actualAqi, aqiBand, phaseOf, rates, seasonOf, weekOf, weekProgress } from '../engine/core';
 import { useGame } from '../state/store';
 import { Icon } from './icons';
 import { inr, num, signed } from './format';
 
-/** Direction of the last change of a value: 1, -1 or 0. */
+/** Direction of the last change of a value: 1, -1 or 0 (fades after 2.5 s). */
 function useTrend(v: number) {
   const ref = useRef({ v, t: 0, at: 0 });
   if (v !== ref.current.v) ref.current = { v, t: Math.sign(v - ref.current.v), at: Date.now() };
   return Date.now() - ref.current.at < 2500 ? ref.current.t : 0;
 }
+
+const SPEEDS = [1, 2, 3] as const;
 
 export function Hud() {
   const g = useGame((s) => s.game);
@@ -21,27 +24,28 @@ export function Hud() {
   const band = aqiBand(aqi);
   const tAqi = useTrend(aqi);
   const tTrust = useTrend(Math.round(g.res.trust));
+  const week = Math.min(weekOf(g), CAMPAIGN_WEEKS);
   const paused = g.speed === 0;
-  const nextSpeed = g.speed === 1 ? 2 : g.speed === 2 ? 4 : 1;
+  const progress = weekProgress(g);
 
   return (
     <header className="hud">
       <div className="hud-brand">Hawa <b>Badlo</b></div>
 
       <div className="hud-stats">
-        <div className="stat" title={`Income ${inr(r.income)}/day − upkeep ${inr(r.maintenance)}/day`}>
+        <div className="stat stat-money" title={`Income ${inr(r.income)}/week − upkeep ${inr(r.maintenance)}/week`}>
           <span className="stat-icon money"><Icon name="wallet" /></span>
           <span className="stat-text">
-            <small>Budget</small>
+            <small>Treasury</small>
             <b className={g.res.budget < 0 ? 'neg' : ''}>{inr(g.res.budget)}</b>
           </span>
-          <em className={`stat-sub ${r.net < 0 ? 'neg' : 'pos'}`}>{signed(r.net)}/day</em>
+          <em className={`stat-sub ${r.net < 0 ? 'neg' : 'pos'}`}>{signed(r.net)}/wk</em>
           <span className="floaters" aria-hidden>
             {floaters.map((f) => <i key={f.id} style={{ color: f.color }}>{f.text}</i>)}
           </span>
         </div>
 
-        <div className={`stat ${tAqi > 0 ? 'flash-bad' : tAqi < 0 ? 'flash-good' : ''}`} title="Actual air quality from independent sensors (simulated). Lower is better.">
+        <div className={`stat stat-aqi ${tAqi > 0 ? 'flash-bad' : tAqi < 0 ? 'flash-good' : ''}`} title="Actual air quality from independent sensors (simulated). Lower is better.">
           <span className="stat-icon" style={{ background: band.color }}><Icon name="wind" /></span>
           <span className="stat-text">
             <small>Actual AQI</small>
@@ -50,7 +54,7 @@ export function Hud() {
           <em className="stat-sub band" style={{ color: band.color }}>{band.label}</em>
         </div>
 
-        <div className={`stat ${tTrust > 0 ? 'flash-good' : tTrust < 0 ? 'flash-bad' : ''}`} title="How much citizens trust you. Raises your daily allocation.">
+        <div className={`stat stat-trust ${tTrust > 0 ? 'flash-good' : tTrust < 0 ? 'flash-bad' : ''}`} title="How much citizens trust you. Raises your weekly allocation and decides the election.">
           <span className="stat-icon trust"><Icon name="smile" /></span>
           <span className="stat-text">
             <small>Public trust</small>
@@ -61,17 +65,19 @@ export function Hud() {
       </div>
 
       <div className="hud-time">
-        <div className="week" title={seasonOf(dayOf(g)).blurb}>
-          <small>{seasonOf(dayOf(g)).name}</small>
-          <b>Week {weekOf(g)} <span>of {CAMPAIGN_WEEKS}</span></b>
-          <span className="days">{Array.from({ length: 7 }, (_, i) => <i key={i} className={i < dayOfWeek(g) ? 'on' : ''} />)}</span>
+        <div className="week" title={`${PHASE_BRIEFS[phaseOf(g) - 1].title} · ${seasonOf(week).name}. ${seasonOf(week).blurb}`}>
+          <small>{PHASE_BRIEFS[phaseOf(g) - 1].title}</small>
+          <b>Week {week} <span>/ {CAMPAIGN_WEEKS}</span></b>
+          <span className="week-timer" aria-label={`${Math.round(progress * 100)}% of this week elapsed`}><i style={{ width: `${progress * 100}%` }} /></span>
         </div>
-        <button className="icon-btn primary" onClick={() => setSpeed(paused ? 1 : 0)} aria-label={paused ? 'Play' : 'Pause'}>
+        <button className="icon-btn primary" onClick={() => setSpeed(paused ? 1 : 0)} aria-label={paused ? 'Play' : 'Pause'} title={paused ? 'Play' : 'Pause'}>
           <Icon name={paused ? 'play' : 'pause'} />
         </button>
-        <button className="icon-btn speed" onClick={() => setSpeed(paused ? 1 : nextSpeed)} aria-label="Change speed">
-          <Icon name="fast" size={16} /> {paused ? '1' : g.speed}×
-        </button>
+        <div className="speeds" role="group" aria-label="Simulation speed">
+          {SPEEDS.map((sp) => (
+            <button key={sp} className={`speed-btn ${g.speed === sp ? 'on' : ''}`} onClick={() => setSpeed(sp)} aria-pressed={g.speed === sp}>{sp}×</button>
+          ))}
+        </div>
         <button className="icon-btn" onClick={() => useGame.setState({ showSettings: true })} aria-label="Settings"><Icon name="settings" /></button>
       </div>
     </header>

@@ -1,66 +1,28 @@
 import Phaser from 'phaser';
 import { BUILDINGS } from '../config/balance';
-import { actualAqi, dayOf, seasonOf, timeOfDay } from '../engine/core';
+import { actualAqi, seasonOf, weekOf, weekProgress } from '../engine/core';
+import {
+  CELL, CITY, COLS, ROWS, buildingAt, districtAt, idx, isRoad, plotAt, roadNeighbours, tileAt, type MapBuilding, type Pick,
+} from '../engine/map';
 import type { BuildingId, GameState } from '../engine/types';
+import { cityControls } from './controls';
 
 /**
- * Top-down, flat, minimalist Delhi neighbourhood (Mini Motorways-inspired visual language).
- * The world is authored in a 1600×1000 coordinate space and scaled to cover the canvas;
- * when the canvas is narrower than the world (phones), the player can drag to pan.
+ * Renders the grid city (src/engine/map.ts) in a Mini Motorways-like flat top-down style.
+ * World objects live under `world` and are seen by the main (pannable, zoomable) camera;
+ * screen-space atmosphere (haze, smog, rain, night) is drawn by a second, fixed camera.
  */
+
 export interface CityBridge {
   getState: () => GameState;
-  getSelected: () => BuildingId | null;
-  onSelect: (id: BuildingId | null) => void;
+  getHighlight: () => Pick | null;
+  onPick: (p: Pick | null) => void;
+  onCamera: (kind: 'pan' | 'zoom') => void;
   animations: () => boolean;
 }
 
-const WW = 1600;
-const WH = 1000;
-const ROAD = 34;
-const H_ROADS = [140, 480, 860];
-const V_ROADS = [360, 800, 1240];
-const RIVER_X = 1505;
-const METRO_Y = 418;
-const STATION_X = 1020;
-
-type Rect = { x: number; y: number; w: number; h: number };
-type Zone = 'res' | 'market' | 'park' | 'industry' | 'res-low';
-
-/** Facility plots (centre points). */
-export const PLOTS: { id: BuildingId; x: number; y: number }[] = [
-  { id: 'monitor', x: 180, y: 262 },
-  { id: 'pr', x: 580, y: 262 },
-  { id: 'greenery', x: 1020, y: 262 },
-  { id: 'bus', x: 1372, y: 262 },
-  { id: 'dust', x: 180, y: 588 },
-  { id: 'waste', x: 580, y: 588 },
-  { id: 'parali', x: 1020, y: 588 },
-  { id: 'industrial', x: 1372, y: 588 },
-];
-const PW = 128;
-const PH = 92;
-
-const BLOCKS: { r: Rect; zone: Zone }[] = [];
-{
-  const xs = [0, ...V_ROADS, RIVER_X];
-  const ys = [0, ...H_ROADS, WH];
-  const zoneMap: Zone[][] = [
-    ['res-low', 'res-low', 'res-low', 'res-low'],
-    ['res', 'market', 'park', 'res'],
-    ['res', 'res', 'market', 'industry'],
-    ['res-low', 'res-low', 'res-low', 'industry'],
-  ];
-  for (let r = 0; r < ys.length - 1; r++)
-    for (let c = 0; c < xs.length - 1; c++) {
-      const x0 = xs[c] + (c ? ROAD / 2 : 0) + 10;
-      const x1 = xs[c + 1] - (c < xs.length - 2 ? ROAD / 2 : 0) - 10;
-      const y0 = ys[r] + (r ? ROAD / 2 : 0) + 10;
-      const y1 = ys[r + 1] - (r < ys.length - 2 ? ROAD / 2 : 0) - 10;
-      BLOCKS.push({ r: { x: x0, y: y0, w: x1 - x0, h: y1 - y0 }, zone: zoneMap[r][c] });
-    }
-}
-
+const WW = COLS * CELL;
+const WH = ROWS * CELL;
 const hash = (n: number) => {
   const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
   return x - Math.floor(x);
@@ -73,53 +35,58 @@ function mix(c1: number, c2: number, t: number) {
   return (Math.round(r) << 16) | (Math.round(g) << 8) | Math.round(b);
 }
 const hex = (s: string) => parseInt(s.replace('#', ''), 16);
-const overlaps = (a: Rect, b: Rect) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
 
-/** Palette; `haze` 0 = clean & saturated, 1 = smoggy & desaturated. */
 function palette(haze: number) {
   const grey = 0xb9b4a6;
-  const d = (c: number, k = 0.55) => mix(c, grey, haze * k);
+  const d = (c: number, k = 0.5) => mix(c, grey, haze * k);
   return {
-    land: d(0xf1ecdf, 0.35),
-    grass: d(0xb7dd8f),
-    park: d(0x9fd27a),
+    land: d(0xf0eadb, 0.3),
+    grass: d(0xd9e7b8),
+    park: d(0xa5d47f),
     tree: d(0x5fae5a),
-    treeDark: d(0x4b9449),
-    road: mix(0x40454f, 0x55575c, haze * 0.4),
-    lane: 0xf4f1e8,
+    treeDark: d(0x478f45),
+    road: mix(0x464b55, 0x55575c, haze * 0.4),
+    street: mix(0x5b616c, 0x66686c, haze * 0.4),
+    lane: 0xf5f1e6,
     water: d(0x8fcbe8),
-    houses: [0xe08b6d, 0xf2d7b0, 0xf5b971, 0xe9a3a0, 0xa9cbb7, 0xd9c7ee, 0xf7e3a1].map((c) => d(c)),
-    shops: [0x6aa9e0, 0xf2c14e, 0xf08a4b, 0x7cc6c0].map((c) => d(c)),
-    industry: [0xa8a29a, 0x9ca3af, 0xb6aea0].map((c) => d(c, 0.3)),
-    tank: 0x2b2b2b,
+    waterDeep: d(0x77b8da),
+    houses: [0xe08b6d, 0xf2d7b0, 0xf5b971, 0xe9a3a0, 0xa9cbb7, 0xd9c7ee, 0xf7e3a1, 0xc9dcef].map((c) => d(c)),
+    flats: [0xf3e6cf, 0xe7d2c0, 0xd6e4ea, 0xefd9b7].map((c) => d(c)),
+    shops: [0x6aa9e0, 0xf2c14e, 0xf08a4b, 0x7cc6c0, 0xe76f6f].map((c) => d(c)),
+    glass: d(0x7fb3d9),
+    industry: [0xa8a29a, 0x9ca3af, 0xb6aea0].map((c) => d(c, 0.25)),
+    sand: d(0xe8d3a8),
     metro: d(0x9b6bd6),
-    pillar: d(0xcfc6e6),
   };
 }
 
-interface Vehicle { obj: Phaser.GameObjects.Container; vx: number; vy: number }
+interface Vehicle { obj: Phaser.GameObjects.Container; fx: number; fy: number; tx: number; ty: number; t: number; speed: number }
 
 export class CityScene extends Phaser.Scene {
   private bridge!: CityBridge;
   private world!: Phaser.GameObjects.Container;
-  private base!: Phaser.GameObjects.Graphics;
+  private ground!: Phaser.GameObjects.Graphics;
+  private blds!: Phaser.GameObjects.Graphics;
   private trees!: Phaser.GameObjects.Graphics;
+  private overlay!: Phaser.GameObjects.Graphics;
   private plotLayer!: Phaser.GameObjects.Container;
   private traffic!: Phaser.GameObjects.Container;
-  private train!: Phaser.GameObjects.Container;
-  private selRing!: Phaser.GameObjects.Graphics;
+  private trains: { obj: Phaser.GameObjects.Container; line: number; t: number; dir: number }[] = [];
+  private smoke!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private dust!: Phaser.GameObjects.Particles.ParticleEmitter;
+  private uiCam!: Phaser.Cameras.Scene2D.Camera;
   private haze!: Phaser.GameObjects.Rectangle;
   private night!: Phaser.GameObjects.Rectangle;
-  private smoke!: Phaser.GameObjects.Particles.ParticleEmitter;
   private smog!: Phaser.GameObjects.Particles.ParticleEmitter;
   private rain!: Phaser.GameObjects.Particles.ParticleEmitter;
   private vehicles: Vehicle[] = [];
-  private walkers: { obj: Phaser.GameObjects.Arc; vx: number; vy: number; x0: number; x1: number; y0: number; y1: number }[] = [];
-  private zoom = 1;
+  private roadTiles: [number, number][] = [];
   private bucket = -1;
   private levelsKey = '';
   private hazeT = 0;
-  private drag: { x: number; y: number; wx: number; wy: number; moved: boolean } | null = null;
+  private minZoom = 0.3;
+  private drag: { x: number; y: number; moved: boolean; pinch: number | null } | null = null;
+  private hover: { x: number; y: number } | null = null;
 
   constructor() {
     super('city');
@@ -142,35 +109,58 @@ export class CityScene extends Phaser.Scene {
     g.generateTexture('drop', 2, 9);
     g.destroy();
 
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (isRoad(CITY.tiles[idx(x, y)])) this.roadTiles.push([x, y]);
+
     this.world = this.add.container(0, 0);
-    this.base = this.add.graphics();
+    this.ground = this.add.graphics();
+    this.blds = this.add.graphics();
     this.trees = this.add.graphics();
     this.traffic = this.add.container(0, 0);
-    this.train = this.add.container(0, 0);
     this.plotLayer = this.add.container(0, 0);
-    this.selRing = this.add.graphics();
-    this.smoke = this.add.particles(0, 0, 'puff', { lifespan: 4200, speedX: { min: 6, max: 22 }, speedY: { min: -26, max: -10 }, scale: { start: 0.5, end: 2.4 }, alpha: { start: 0.45, end: 0 }, tint: 0x7a7670, frequency: 240 });
-    this.world.add([this.base, this.trees, this.traffic, this.train, this.plotLayer, this.selRing, this.smoke]);
+    this.overlay = this.add.graphics();
+    this.smoke = this.add.particles(0, 0, 'puff', { lifespan: 4200, speedX: { min: 6, max: 22 }, speedY: { min: -26, max: -10 }, scale: { start: 0.5, end: 2.4 }, alpha: { start: 0.45, end: 0 }, tint: 0x7a7670, frequency: 140 });
+    this.dust = this.add.particles(0, 0, 'puff', { lifespan: 2600, speedX: { min: -10, max: 14 }, speedY: { min: -12, max: -2 }, scale: { start: 0.4, end: 1.6 }, alpha: { start: 0.4, end: 0 }, tint: 0xcfb27c, frequency: 260 });
+    this.world.add([this.ground, this.blds, this.trees, this.traffic, this.plotLayer, this.smoke, this.dust, this.overlay]);
 
     this.haze = this.add.rectangle(0, 0, 10, 10, 0xa59c87, 0).setOrigin(0);
     this.smog = this.add.particles(0, 0, 'puff', { lifespan: 10000, speedX: { min: -6, max: 10 }, speedY: { min: -3, max: 3 }, scale: { start: 3, end: 6 }, alpha: { start: 0.35, end: 0 }, tint: 0xb3a88f, frequency: 160 });
     this.rain = this.add.particles(0, 0, 'drop', { lifespan: 900, speedY: { min: 520, max: 650 }, speedX: -40, alpha: 0.5, frequency: 10, quantity: 2, emitting: false });
     this.night = this.add.rectangle(0, 0, 10, 10, 0x101a3d, 0).setOrigin(0);
 
+    const cam = this.cameras.main;
+    cam.setBounds(-CELL * 2, -CELL * 2, WW + CELL * 4, WH + CELL * 4);
+    this.uiCam = this.cameras.add(0, 0, this.scale.width, this.scale.height);
+    cam.ignore([this.haze, this.smog, this.rain, this.night]);
+    this.uiCam.ignore(this.world);
+
+    this.input.addPointer(1);
     this.setupInput();
-    this.scale.on('resize', () => this.fit());
-    this.fit();
-    this.spawnWalkers();
-    for (let i = 0; i < 18; i++) this.spawnVehicle(this.bridge.getState(), true);
+    this.scale.on('resize', () => this.fit(false));
+    this.fit(true);
+    this.buildTrains();
+    for (let i = 0; i < 70; i++) this.spawnVehicle(this.bridge.getState(), true);
+
+    cityControls.zoomBy = (f) => this.zoomAt(f, this.scale.width / 2, this.scale.height / 2);
+    cityControls.reset = () => this.fit(true);
+    cityControls.focusTile = (x, y, z) => {
+      const c = this.cameras.main;
+      this.tweens.add({ targets: c, zoom: Phaser.Math.Clamp(z ?? 1.1, this.minZoom, 2.5), duration: 500, ease: 'Sine.easeInOut' });
+      c.pan(x * CELL, y * CELL, 500, 'Sine.easeInOut');
+    };
   }
 
-  /* ------------------------------------------------------------ framing & input */
+  /* ------------------------------------------------------------ camera & input */
 
-  private fit() {
+  private fit(recentre: boolean) {
     const W = this.scale.width, H = this.scale.height;
-    this.zoom = Math.max(W / WW, H / WH);
-    this.world.setScale(this.zoom);
-    this.world.setPosition((W - WW * this.zoom) / 2, (H - WH * this.zoom) / 2);
+    const cam = this.cameras.main;
+    cam.setSize(W, H);
+    this.uiCam.setSize(W, H);
+    this.minZoom = Math.max(W / (WW + CELL * 4), H / (WH + CELL * 4));
+    if (recentre) {
+      cam.setZoom(Math.max(this.minZoom, Math.min(1, Math.max(this.minZoom * 1.25, 0.6))));
+      cam.centerOn(CELL * 24, CELL * 17);
+    } else if (cam.zoom < this.minZoom) cam.setZoom(this.minZoom);
     this.haze.setSize(W, H);
     this.night.setSize(W, H);
     this.smog.clearEmitZones?.();
@@ -179,187 +169,295 @@ export class CityScene extends Phaser.Scene {
     this.rain.addEmitZone({ type: 'random', source: new Phaser.Geom.Rectangle(-40, -20, W + 80, 10), quantity: 1 } as never);
   }
 
-  private clampWorld() {
-    const W = this.scale.width, H = this.scale.height;
-    const minX = W - WW * this.zoom, minY = H - WH * this.zoom;
-    this.world.x = Phaser.Math.Clamp(this.world.x, Math.min(0, minX), Math.max(0, minX));
-    this.world.y = Phaser.Math.Clamp(this.world.y, Math.min(0, minY), Math.max(0, minY));
+  private zoomAt(f: number, px: number, py: number) {
+    const cam = this.cameras.main;
+    const before = cam.getWorldPoint(px, py);
+    cam.setZoom(Phaser.Math.Clamp(cam.zoom * f, this.minZoom, 2.5));
+    cam.preRender();
+    const after = cam.getWorldPoint(px, py);
+    cam.scrollX += before.x - after.x;
+    cam.scrollY += before.y - after.y;
+    this.bridge.onCamera('zoom');
   }
 
   private setupInput() {
+    const cam = this.cameras.main;
+    this.input.on('wheel', (p: Phaser.Input.Pointer, _o: unknown, _dx: number, dy: number) => this.zoomAt(dy > 0 ? 0.9 : 1.11, p.x, p.y));
     this.input.on('pointerdown', (p: Phaser.Input.Pointer) => {
-      this.drag = { x: p.x, y: p.y, wx: this.world.x, wy: this.world.y, moved: false };
+      if (!this.drag) this.drag = { x: p.x, y: p.y, moved: false, pinch: null };
     });
     this.input.on('pointermove', (p: Phaser.Input.Pointer) => {
+      const wp = cam.getWorldPoint(p.x, p.y);
+      this.hover = { x: Math.floor(wp.x / CELL), y: Math.floor(wp.y / CELL) };
+      const p1 = this.input.pointer1, p2 = this.input.pointer2;
+      if (p1.isDown && p2.isDown) {
+        const d = Phaser.Math.Distance.Between(p1.x, p1.y, p2.x, p2.y);
+        if (this.drag) {
+          if (this.drag.pinch) this.zoomAt(d / this.drag.pinch, (p1.x + p2.x) / 2, (p1.y + p2.y) / 2);
+          this.drag.pinch = d;
+          this.drag.moved = true;
+        }
+        return;
+      }
       if (!this.drag || !p.isDown) return;
-      const dx = p.x - this.drag.x, dy = p.y - this.drag.y;
-      if (Math.abs(dx) + Math.abs(dy) > 6) this.drag.moved = true;
+      if (Math.abs(p.x - this.drag.x) + Math.abs(p.y - this.drag.y) > 6) this.drag.moved = true;
       if (this.drag.moved) {
-        this.world.x = this.drag.wx + dx;
-        this.world.y = this.drag.wy + dy;
-        this.clampWorld();
+        cam.scrollX -= (p.x - p.prevPosition.x) / cam.zoom;
+        cam.scrollY -= (p.y - p.prevPosition.y) / cam.zoom;
+        this.bridge.onCamera('pan');
       }
     });
     this.input.on('pointerup', (p: Phaser.Input.Pointer) => {
       const moved = this.drag?.moved ?? false;
-      this.drag = null;
+      if (!this.input.pointer1.isDown && !this.input.pointer2.isDown) this.drag = null;
       if (moved) return;
-      const wx = (p.x - this.world.x) / this.zoom;
-      const wy = (p.y - this.world.y) / this.zoom;
-      const hit = PLOTS.find((q) => Math.abs(wx - q.x) <= PW / 2 + 6 && Math.abs(wy - q.y) <= PH / 2 + 6);
-      this.bridge.onSelect(hit ? hit.id : null);
+      const wp = cam.getWorldPoint(p.x, p.y);
+      this.bridge.onPick(this.pick(Math.floor(wp.x / CELL), Math.floor(wp.y / CELL)));
     });
+    this.input.on('gameout', () => (this.hover = null));
   }
 
-  /* ------------------------------------------------------------ static map */
-
-  private reserved(): Rect[] {
-    const r: Rect[] = PLOTS.map((p) => ({ x: p.x - PW / 2 - 14, y: p.y - PH / 2 - 14, w: PW + 28, h: PH + 40 }));
-    r.push({ x: 0, y: METRO_Y - 22, w: RIVER_X, h: 44 }); // metro corridor
-    r.push({ x: 560, y: 700, w: 210, h: 130 }); // construction site
-    return r;
+  private pick(x: number, y: number): Pick | null {
+    const plot = plotAt(CITY, x, y);
+    if (plot) return { type: 'plot', id: plot };
+    const b = buildingAt(CITY, x, y);
+    if (b) return { type: 'building', id: b.id };
+    if (isRoad(tileAt(CITY, x, y))) return { type: 'road', x, y };
+    const d = districtAt(CITY, x, y);
+    if (d && tileAt(CITY, x, y) !== 'water') return { type: 'district', id: d.id, x, y };
+    return null;
   }
 
-  private drawMap(haze: number) {
+  /* ------------------------------------------------------------ static drawing */
+
+  private drawCity(haze: number) {
     const p = palette(haze);
-    const g = this.base;
+    const g = this.ground;
     g.clear();
     g.fillStyle(p.land, 1);
-    g.fillRect(-400, -400, WW + 800, WH + 800);
-
-    // river (Yamuna-ish) on the east
+    g.fillRect(-CELL * 4, -CELL * 4, WW + CELL * 8, WH + CELL * 8);
     g.fillStyle(p.water, 1);
-    const pts: Phaser.Types.Math.Vector2Like[] = [];
-    for (let y = -50; y <= WH + 50; y += 50) pts.push({ x: RIVER_X + 30 + Math.sin(y / 140) * 18, y });
-    pts.push({ x: WW + 400, y: WH + 50 }, { x: WW + 400, y: -50 });
-    g.fillPoints(pts, true);
-    g.fillStyle(p.grass, 1);
-    for (let y = 0; y < WH; y += 50) g.fillCircle(RIVER_X + 18 + Math.sin(y / 140) * 18, y, 14);
-
-    // block grounds
-    for (const b of BLOCKS) {
-      const col = b.zone === 'park' ? p.park : b.zone === 'industry' ? mix(p.land, 0xd6d0c4, 0.6) : mix(p.land, p.grass, 0.18);
-      g.fillStyle(col, 1);
-      g.fillRoundedRect(b.r.x, b.r.y, b.r.w, b.r.h, 18);
+    for (let y = -3; y < ROWS + 3; y++) {
+      const rx = CITY.riverX[Math.max(0, Math.min(ROWS - 1, y))];
+      g.fillRect(rx * CELL - 6, y * CELL, WW + CELL * 4 - rx * CELL, CELL + 1);
     }
-
-    // roads
-    g.fillStyle(p.road, 1);
-    for (const y of H_ROADS) g.fillRect(-400, y - ROAD / 2, RIVER_X + 400, ROAD);
-    for (const x of V_ROADS) g.fillRect(x - ROAD / 2, -400, ROAD, WH + 800);
-    // bridge over the river
-    g.fillRect(RIVER_X - 10, H_ROADS[1] - ROAD / 2, WW + 400 - RIVER_X, ROAD);
-    g.fillStyle(p.lane, 0.55);
-    for (const y of H_ROADS) for (let x = -400; x < WW + 400; x += 34) if (!V_ROADS.some((v) => Math.abs(v - x) < ROAD)) g.fillRect(x, y - 1, 16, 2);
-    for (const x of V_ROADS) for (let y = -400; y < WH + 400; y += 34) if (!H_ROADS.some((h) => Math.abs(h - y) < ROAD)) g.fillRect(x - 1, y, 2, 16);
-    // zebra crossings
-    g.fillStyle(p.lane, 0.8);
-    for (const x of V_ROADS) for (const y of H_ROADS) for (let k = -12; k <= 12; k += 6) {
-      g.fillRect(x + k - 2, y - ROAD / 2 - 12, 3, 9);
-      g.fillRect(x + k - 2, y + ROAD / 2 + 3, 3, 9);
+    g.fillStyle(p.waterDeep, 1);
+    for (let y = -3; y < ROWS + 3; y++) {
+      const rx = CITY.riverX[Math.max(0, Math.min(ROWS - 1, y))];
+      g.fillRect(rx * CELL + 34, y * CELL, 70, CELL + 1);
     }
-
-    // buildings per zone
-    const res = this.reserved();
-    let seed = 1;
-    for (const b of BLOCKS) {
-      if (b.zone === 'park') continue;
-      const step = b.zone === 'industry' ? 88 : b.zone === 'market' ? 58 : 50;
-      for (let y = b.r.y + 10; y + 30 < b.r.y + b.r.h; y += step) {
-        for (let x = b.r.x + 10; x + 30 < b.r.x + b.r.w; x += step) {
-          seed++;
-          const rnd = hash(seed);
-          if (b.zone === 'res-low' && rnd < 0.35) continue;
-          const w = b.zone === 'industry' ? 70 : b.zone === 'market' ? 48 : 30 + Math.floor(hash(seed * 3) * 10);
-          const h = b.zone === 'industry' ? 56 : b.zone === 'market' ? 30 : 30 + Math.floor(hash(seed * 7) * 8);
-          const r = { x, y, w, h };
-          if (r.x + r.w > b.r.x + b.r.w - 6 || r.y + r.h > b.r.y + b.r.h - 6) continue;
-          if (res.some((q) => overlaps(q, r))) continue;
-          this.drawBuilding(g, p, b.zone, r, rnd);
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+      const t = CITY.tiles[idx(x, y)];
+      if (t === 'park') {
+        g.fillStyle(p.park, 1);
+        g.fillRect(x * CELL, y * CELL, CELL + 1, CELL + 1);
+      } else if (t === 'grass') {
+        g.fillStyle(p.grass, 1);
+        g.fillRoundedRect(x * CELL + 2, y * CELL + 2, CELL - 4, CELL - 4, 6);
+      }
+    }
+    for (const [x, y] of this.roadTiles) {
+      const t = CITY.tiles[idx(x, y)];
+      const cx = x * CELL + CELL / 2, cy = y * CELL + CELL / 2;
+      if (t === 'arterial' || t === 'bridge') {
+        g.fillStyle(p.road, 1);
+        g.fillRect(x * CELL, y * CELL, CELL + 0.5, CELL + 0.5);
+      } else {
+        const w = 22;
+        g.fillStyle(p.street, 1);
+        g.fillRect(cx - w / 2, cy - w / 2, w, w);
+        for (const [nx, ny] of roadNeighbours(CITY, x, y)) {
+          if (nx !== x) g.fillRect(Math.min(cx, nx * CELL + CELL / 2), cy - w / 2, CELL / 2 + 1, w);
+          else g.fillRect(cx - w / 2, Math.min(cy, ny * CELL + CELL / 2), w, CELL / 2 + 1);
         }
       }
     }
+    g.fillStyle(p.lane, 0.6);
+    for (const [x, y] of this.roadTiles) {
+      if (CITY.tiles[idx(x, y)] === 'street') continue;
+      const horiz = isRoad(tileAt(CITY, x - 1, y)) && isRoad(tileAt(CITY, x + 1, y));
+      const vert = isRoad(tileAt(CITY, x, y - 1)) && isRoad(tileAt(CITY, x, y + 1));
+      if (horiz && !vert) g.fillRect(x * CELL + 10, y * CELL + CELL / 2 - 1, 20, 2);
+      else if (vert && !horiz) g.fillRect(x * CELL + CELL / 2 - 1, y * CELL + 10, 2, 20);
+    }
+    for (const s of CITY.busStops) {
+      g.fillStyle(0x2563eb, 1);
+      g.fillRoundedRect(s.x * CELL + 3, s.y * CELL + 3, 9, 9, 2);
+      g.fillStyle(0xffffff, 1);
+      g.fillRect(s.x * CELL + 6, s.y * CELL + 6, 3, 3);
+    }
 
-    // central park with India Gate & a pond
-    const park = BLOCKS.find((b) => b.zone === 'park')!.r;
-    g.fillStyle(mix(p.park, 0xffffff, 0.2), 1);
-    g.fillRoundedRect(park.x + 18, park.y + park.h / 2 - 9 + 70, park.w - 36, 18, 9); // path
-    const ix = park.x + park.w - 70, iy = park.y + 60;
-    g.fillStyle(0xd9a27a, 1);
-    g.fillRoundedRect(ix - 26, iy - 12, 52, 24, 4);
-    g.fillStyle(mix(p.park, 0x000000, 0.08), 1);
-    g.fillRect(ix - 8, iy - 12, 16, 24);
-    g.fillStyle(0xc68b63, 1);
-    g.fillRect(ix - 26, iy - 12, 52, 5);
-    g.fillStyle(p.water, 1);
-    g.fillEllipse(park.x + 70, park.y + 70, 80, 44);
-
-    // construction site
-    g.lineStyle(3, 0xf2a541, 1);
-    g.strokeRoundedRect(570, 712, 190, 110, 10);
-    g.fillStyle(0xe8d3a8, 1);
-    g.fillRoundedRect(574, 716, 182, 102, 8);
-    g.fillStyle(0xcfb27c, 1);
-    g.fillCircle(620, 770, 22);
-    g.fillCircle(650, 790, 14);
-    g.fillStyle(0xf2a541, 1);
-    g.fillRect(690, 730, 8, 80);
-    g.fillRect(650, 730, 100, 6);
-    g.fillStyle(0x40454f, 1);
-    g.fillRect(740, 736, 3, 30);
-
-    // metro viaduct + station
-    g.fillStyle(p.pillar, 1);
-    for (let x = 20; x < RIVER_X; x += 90) g.fillCircle(x, METRO_Y, 6);
-    g.fillStyle(p.metro, 1);
-    g.fillRoundedRect(-400, METRO_Y - 5, RIVER_X + 410, 10, 5);
-    g.fillStyle(mix(p.metro, 0xffffff, 0.75), 1);
-    g.fillRoundedRect(STATION_X - 70, METRO_Y - 20, 140, 40, 12);
-    g.fillStyle(p.metro, 1);
-    g.fillCircle(STATION_X, METRO_Y, 11);
-    g.fillStyle(0xffffff, 1);
-    g.fillRect(STATION_X - 5, METRO_Y - 5, 3, 10);
-    g.fillRect(STATION_X + 2, METRO_Y - 5, 3, 10);
-    g.fillRect(STATION_X - 5, METRO_Y - 5, 10, 3);
-
-    this.smoke.setPosition(0, 0);
+    const b = this.blds;
+    b.clear();
     this.smoke.clearEmitZones?.();
-    this.smoke.addEmitZone({ type: 'random', source: new Phaser.Geom.Rectangle(1290, 720, 160, 230), quantity: 1 } as never);
+    this.dust.clearEmitZones?.();
+    for (const m of CITY.buildings) this.drawBuilding(b, p, m);
+
+    for (const l of CITY.metro.lines) {
+      const horiz = l.y1 === l.y2;
+      b.fillStyle(0x000000, 0.12);
+      if (horiz) b.fillRect(l.x1 * CELL, l.y1 * CELL + 13, (l.x2 - l.x1) * CELL, 8);
+      else b.fillRect(l.x1 * CELL + 13, l.y1 * CELL, 8, (l.y2 - l.y1 + 1) * CELL);
+      b.fillStyle(p.metro, 1);
+      if (horiz) b.fillRect(l.x1 * CELL, l.y1 * CELL + 9, (l.x2 - l.x1) * CELL, 7);
+      else b.fillRect(l.x1 * CELL + 9, l.y1 * CELL, 7, (l.y2 - l.y1 + 1) * CELL);
+    }
+    for (const s of CITY.metro.stations) {
+      const cx = s.x * CELL + CELL / 2, cy = s.y * CELL + CELL / 2;
+      b.fillStyle(0x000000, 0.15);
+      b.fillRoundedRect(cx - 26, cy - 14, 56, 30, 9);
+      b.fillStyle(mix(p.metro, 0xffffff, 0.8), 1);
+      b.fillRoundedRect(cx - 28, cy - 16, 56, 30, 9);
+      b.fillStyle(p.metro, 1);
+      b.fillCircle(cx, cy - 1, 10);
+      b.fillStyle(0xffffff, 1);
+      b.fillRect(cx - 5, cy - 6, 3, 10);
+      b.fillRect(cx + 2, cy - 6, 3, 10);
+      b.fillRect(cx - 5, cy - 6, 10, 3);
+    }
   }
 
-  private drawBuilding(g: Phaser.GameObjects.Graphics, p: ReturnType<typeof palette>, zone: Zone, r: Rect, rnd: number) {
-    g.fillStyle(0x000000, 0.08);
-    g.fillRoundedRect(r.x + 3, r.y + 4, r.w, r.h, 6);
-    if (zone === 'industry') {
-      g.fillStyle(p.industry[Math.floor(rnd * 3)], 1);
-      g.fillRoundedRect(r.x, r.y, r.w, r.h, 6);
-      g.fillStyle(0x000000, 0.08);
-      for (let k = 1; k < 4; k++) g.fillRect(r.x + (r.w * k) / 4 - 1, r.y + 4, 2, r.h - 8);
-      g.fillStyle(0x7b7b7b, 1);
-      g.fillCircle(r.x + r.w - 12, r.y + 12, 7);
-      g.fillStyle(0x4a4a4a, 1);
-      g.fillCircle(r.x + r.w - 12, r.y + 12, 4);
-      return;
-    }
-    if (zone === 'market') {
-      g.fillStyle(p.shops[Math.floor(rnd * 4)], 1);
-      g.fillRoundedRect(r.x, r.y, r.w, r.h, 6);
-      g.fillStyle(0xffffff, 0.55);
-      for (let k = 0; k < r.w; k += 8) g.fillRect(r.x + k, r.y + r.h - 7, 4, 7); // awning
-      return;
-    }
-    g.fillStyle(p.houses[Math.floor(rnd * p.houses.length)], 1);
-    g.fillRoundedRect(r.x, r.y, r.w, r.h, 6);
-    g.fillStyle(0xffffff, 0.22);
-    g.fillRoundedRect(r.x + 3, r.y + 3, r.w - 6, 4, 2);
-    if (rnd > 0.25) {
-      // the iconic black rooftop water tank
-      g.fillStyle(p.tank, 1);
-      g.fillCircle(r.x + r.w - 9, r.y + 10, 5);
-    }
-    if (rnd > 0.7) {
-      g.fillStyle(0xffffff, 0.6);
-      g.fillRect(r.x + 5, r.y + r.h - 9, r.w * 0.4, 2); // clothesline
+  private drawBuilding(g: Phaser.GameObjects.Graphics, p: ReturnType<typeof palette>, m: MapBuilding) {
+    const r = hash(m.seed);
+    const x = m.x * CELL, y = m.y * CELL, w = m.w * CELL, h = m.h * CELL;
+    const bx = x + 5, by = y + 5, bw = w - 10, bh = h - 10;
+    const shadow = () => {
+      g.fillStyle(0x000000, 0.1);
+      g.fillRoundedRect(bx + 3, by + 4, bw, bh, 6);
+    };
+    switch (m.kind) {
+      case 'house': {
+        shadow();
+        g.fillStyle(p.houses[Math.floor(r * p.houses.length)], 1);
+        g.fillRoundedRect(bx, by, bw, bh, 6);
+        g.fillStyle(0xffffff, 0.22);
+        g.fillRoundedRect(bx + 3, by + 3, bw - 6, 5, 2);
+        if (r > 0.2) {
+          g.fillStyle(0x262626, 1);
+          g.fillCircle(bx + bw - 8, by + 9, 5);
+        }
+        if (r > 0.6) {
+          g.fillStyle(0xffffff, 0.55);
+          g.fillRect(bx + 4, by + bh - 8, bw * 0.45, 2);
+        }
+        break;
+      }
+      case 'apartment': {
+        shadow();
+        g.fillStyle(p.flats[Math.floor(r * p.flats.length)], 1);
+        g.fillRoundedRect(bx, by, bw, bh, 8);
+        g.fillStyle(0x000000, 0.08);
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) g.fillRoundedRect(bx + 8 + (i * (bw - 16)) / 3, by + 8 + (j * (bh - 16)) / 3, (bw - 16) / 3 - 6, (bh - 16) / 3 - 6, 3);
+        g.fillStyle(0x262626, 1);
+        g.fillCircle(bx + 10, by + 10, 5);
+        g.fillCircle(bx + bw - 10, by + 10, 5);
+        break;
+      }
+      case 'shop': {
+        shadow();
+        g.fillStyle(p.shops[Math.floor(r * p.shops.length)], 1);
+        g.fillRoundedRect(bx, by, bw, bh, 5);
+        g.fillStyle(0xffffff, 0.6);
+        for (let k = 0; k < bw; k += 7) g.fillRect(bx + k, by + bh - 7, 3.5, 7);
+        break;
+      }
+      case 'market': {
+        g.fillStyle(p.sand, 1);
+        g.fillRoundedRect(bx, by, bw, bh, 6);
+        for (let i = 0; i < Math.floor(bw / 13); i++) for (let j = 0; j < Math.floor(bh / 13); j++) {
+          g.fillStyle(p.shops[(i + j + Math.floor(r * 5)) % p.shops.length], 1);
+          g.fillRoundedRect(bx + 3 + i * 13, by + 3 + j * 13, 10, 10, 2);
+        }
+        break;
+      }
+      case 'office': {
+        shadow();
+        g.fillStyle(p.glass, 1);
+        g.fillRoundedRect(bx, by, bw, bh, 6);
+        g.fillStyle(0xffffff, 0.3);
+        for (let k = 6; k < bh - 4; k += 8) g.fillRect(bx + 5, by + k, bw - 10, 2);
+        break;
+      }
+      case 'factory': {
+        shadow();
+        g.fillStyle(p.industry[Math.floor(r * 3)], 1);
+        g.fillRoundedRect(bx, by, bw, bh, 5);
+        g.fillStyle(0x000000, 0.1);
+        for (let k = 8; k < bw - 6; k += 12) g.fillRect(bx + k, by + 4, 4, bh - 8);
+        const cx = bx + bw - 12, cy = by + 12;
+        g.fillStyle(0x6b6b6b, 1);
+        g.fillCircle(cx, cy, 8);
+        g.fillStyle(0x3d3d3d, 1);
+        g.fillCircle(cx, cy, 4);
+        this.smoke.addEmitZone({ type: 'random', source: new Phaser.Geom.Circle(cx, cy, 3), quantity: 1 } as never);
+        break;
+      }
+      case 'warehouse': {
+        shadow();
+        g.fillStyle(mix(p.industry[1], 0xe9d8b5, 0.4), 1);
+        g.fillRoundedRect(bx, by, bw, bh, 4);
+        g.fillStyle(0x000000, 0.08);
+        for (let k = 4; k < bh; k += 6) g.fillRect(bx + 3, by + k, bw - 6, 2);
+        break;
+      }
+      case 'construction': {
+        g.fillStyle(p.sand, 1);
+        g.fillRoundedRect(bx, by, bw, bh, 6);
+        g.lineStyle(2, 0xf2a541, 1);
+        g.strokeRoundedRect(bx, by, bw, bh, 6);
+        g.fillStyle(0xcfb27c, 1);
+        g.fillCircle(bx + bw * 0.3, by + bh * 0.6, 10);
+        g.fillStyle(0xf2a541, 1);
+        g.fillRect(bx + bw * 0.65, by + 6, 5, bh - 12);
+        g.fillRect(bx + 8, by + 8, bw - 16, 4);
+        this.dust.addEmitZone({ type: 'random', source: new Phaser.Geom.Rectangle(bx, by, bw, bh), quantity: 1 } as never);
+        break;
+      }
+      case 'park': {
+        g.fillStyle(p.park, 1);
+        g.fillRoundedRect(x + 2, y + 2, w - 4, h - 4, 8);
+        break;
+      }
+      case 'monument': {
+        const cx = x + w / 2, cy = y + h / 2;
+        g.fillStyle(0x000000, 0.12);
+        g.fillRoundedRect(cx - 30, cy - 10, 62, 26, 4);
+        g.fillStyle(0xd9a27a, 1);
+        g.fillRoundedRect(cx - 32, cy - 13, 64, 26, 4);
+        g.fillStyle(mix(p.park, 0x000000, 0.1), 1);
+        g.fillRect(cx - 9, cy - 13, 18, 26);
+        g.fillStyle(0xc68b63, 1);
+        g.fillRect(cx - 32, cy - 13, 64, 6);
+        break;
+      }
+      case 'busterminal': {
+        shadow();
+        g.fillStyle(0xcfd6de, 1);
+        g.fillRoundedRect(bx, by, bw, bh, 8);
+        for (let i = 0; i < 7; i++) {
+          g.fillStyle(i % 3 === 0 ? 0x22a35a : 0xd94b3d, 1);
+          g.fillRoundedRect(bx + 8 + i * 20, by + 8, 12, 26, 3);
+          g.fillRoundedRect(bx + 8 + i * 20, by + bh - 34, 12, 26, 3);
+        }
+        break;
+      }
+      case 'school': {
+        shadow();
+        g.fillStyle(p.shops[1], 1);
+        g.fillRoundedRect(bx, by, bw * 0.55, bh, 5);
+        g.fillStyle(p.park, 1);
+        g.fillRoundedRect(bx + bw * 0.6, by, bw * 0.4, bh, 5);
+        break;
+      }
+      case 'hospital': {
+        shadow();
+        g.fillStyle(0xf8fafc, 1);
+        g.fillRoundedRect(bx, by, bw, bh, 7);
+        g.fillStyle(0xe11d48, 1);
+        g.fillRect(bx + bw / 2 - 4, by + bh / 2 - 12, 8, 24);
+        g.fillRect(bx + bw / 2 - 12, by + bh / 2 - 4, 24, 8);
+        break;
+      }
     }
   }
 
@@ -367,35 +465,24 @@ export class CityScene extends Phaser.Scene {
     const p = palette(haze);
     const g = this.trees;
     g.clear();
-    const green = s.buildings.greenery;
-    // roadside trees: more with greenery level
-    const density = 0.28 + green * 0.2 + (1 - haze) * 0.1;
-    let k = 0;
-    for (const y of H_ROADS) for (let x = 30; x < RIVER_X - 20; x += 46) {
-      k++;
-      if (V_ROADS.some((v) => Math.abs(v - x) < 50) || hash(k) > density) continue;
-      for (const side of [-1, 1]) {
-        const ty = y + side * (ROAD / 2 + 10);
-        const r = this.reserved();
-        if (r.some((q) => overlaps(q, { x: x - 8, y: ty - 8, w: 16, h: 16 }))) continue;
-        g.fillStyle(p.treeDark, 1);
-        g.fillCircle(x + 1, ty + 2, 8);
-        g.fillStyle(p.tree, 1);
-        g.fillCircle(x, ty, 8);
-      }
-    }
-    // park canopy
-    const park = BLOCKS.find((b) => b.zone === 'park')!.r;
-    const n = 14 + green * 10;
-    for (let i = 0; i < n; i++) {
-      const x = park.x + 20 + hash(i * 11) * (park.w - 40), y = park.y + 20 + hash(i * 17) * (park.h - 40);
-      if (Math.abs(x - 1020) < 80 && Math.abs(y - 262) < 70) continue;
-      if (Math.abs(y - METRO_Y) < 26) continue;
-      const rr = 9 + hash(i) * 7;
+    const tree = (x: number, y: number, r: number) => {
       g.fillStyle(p.treeDark, 1);
-      g.fillCircle(x + 2, y + 2, rr);
+      g.fillCircle(x + 2, y + 2, r);
       g.fillStyle(p.tree, 1);
-      g.fillCircle(x, y, rr);
+      g.fillCircle(x, y, r);
+    };
+    const density = 0.35 + s.buildings.greenery * 0.15 + (1 - haze) * 0.1;
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+      const t = CITY.tiles[idx(x, y)];
+      const h = hash(x * 131 + y * 17);
+      if (t === 'park') {
+        const o = CITY.owner[idx(x, y)];
+        if (o >= 0 && CITY.buildings[o].kind === 'monument') continue;
+        if (h < 0.55 + s.buildings.greenery * 0.1) tree(x * CELL + 8 + h * 24, y * CELL + 10 + hash(h) * 20, 8 + h * 5);
+      } else if (t === 'grass' && h < density) {
+        tree(x * CELL + 10 + h * 20, y * CELL + 12 + hash(h * 3) * 16, 7 + h * 3);
+        if (h < density * 0.4) tree(x * CELL + 26, y * CELL + 26, 6);
+      }
     }
   }
 
@@ -403,147 +490,155 @@ export class CityScene extends Phaser.Scene {
 
   private drawPlots(s: GameState, changed: BuildingId[]) {
     this.plotLayer.removeAll(true);
-    for (const plot of PLOTS) {
-      const def = BUILDINGS.find((b) => b.id === plot.id)!;
-      const lvl = s.buildings[plot.id];
-      const c = this.add.container(plot.x, plot.y);
+    for (const def of BUILDINGS) {
+      const pl = CITY.plots[def.id];
+      const lvl = s.buildings[def.id];
+      const PW = pl.w * CELL - 10, PH = pl.h * CELL - 10;
+      const c = this.add.container(pl.x * CELL + (pl.w * CELL) / 2, pl.y * CELL + (pl.h * CELL) / 2);
       const g = this.add.graphics();
       if (lvl === 0) {
-        g.fillStyle(0xffffff, 0.45);
-        g.fillRoundedRect(-PW / 2, -PH / 2, PW, PH, 16);
-        g.lineStyle(2, 0x1b2a5c, 0.35);
-        for (let x = -PW / 2 + 10; x < PW / 2 - 10; x += 14) {
-          g.lineBetween(x, -PH / 2, x + 7, -PH / 2);
-          g.lineBetween(x, PH / 2, x + 7, PH / 2);
+        g.fillStyle(0xffffff, 0.55);
+        g.fillRoundedRect(-PW / 2, -PH / 2, PW, PH, 12);
+        g.lineStyle(2, 0x1b2a5c, 0.4);
+        for (let x = -PW / 2 + 8; x < PW / 2 - 8; x += 12) {
+          g.lineBetween(x, -PH / 2, x + 6, -PH / 2);
+          g.lineBetween(x, PH / 2, x + 6, PH / 2);
         }
-        for (let y = -PH / 2 + 10; y < PH / 2 - 10; y += 14) {
-          g.lineBetween(-PW / 2, y, -PW / 2, y + 7);
-          g.lineBetween(PW / 2, y, PW / 2, y + 7);
+        for (let y = -PH / 2 + 8; y < PH / 2 - 8; y += 12) {
+          g.lineBetween(-PW / 2, y, -PW / 2, y + 6);
+          g.lineBetween(PW / 2, y, PW / 2, y + 6);
         }
         g.fillStyle(0x1b2a5c, 1);
-        g.fillCircle(0, -6, 15);
+        g.fillCircle(0, -8, 13);
         g.fillStyle(0xffffff, 1);
-        g.fillRect(-7, -7, 14, 3);
-        g.fillRect(-1.5, -13, 3, 14);
+        g.fillRect(-6, -9, 12, 3);
+        g.fillRect(-1.5, -14, 3, 13);
         c.add(g);
-        c.add(this.add.text(0, 22, def.short.toUpperCase(), { fontFamily: 'Inter, sans-serif', fontSize: '11px', fontStyle: '700', color: '#1b2a5c' }).setOrigin(0.5).setAlpha(0.75));
+        c.add(this.add.text(0, 16, def.short.toUpperCase(), { fontFamily: 'Inter, sans-serif', fontSize: '10px', fontStyle: '700', color: '#1b2a5c' }).setOrigin(0.5).setAlpha(0.8));
       } else {
         const col = hex(def.color);
-        g.fillStyle(0x000000, 0.12);
-        g.fillRoundedRect(-PW / 2 + 5, -PH / 2 + 7, PW, PH, 16);
+        g.fillStyle(0x000000, 0.14);
+        g.fillRoundedRect(-PW / 2 + 4, -PH / 2 + 6, PW, PH, 12);
         g.fillStyle(col, 1);
-        g.fillRoundedRect(-PW / 2, -PH / 2, PW, PH, 16);
-        g.fillStyle(0xffffff, 0.18);
-        g.fillRoundedRect(-PW / 2 + 8, -PH / 2 + 8, PW - 16, 10, 5);
-        // roof modules grow with level
-        g.fillStyle(mix(col, 0xffffff, 0.3), 1);
-        for (let i = 0; i < lvl; i++) g.fillRoundedRect(-PW / 2 + 12 + i * 26, PH / 2 - 26, 20, 14, 4);
+        g.fillRoundedRect(-PW / 2, -PH / 2, PW, PH, 12);
+        g.fillStyle(0xffffff, 0.2);
+        g.fillRoundedRect(-PW / 2 + 6, -PH / 2 + 6, PW - 12, 8, 4);
+        g.fillStyle(mix(col, 0xffffff, 0.35), 1);
+        for (let i = 0; i < lvl; i++) g.fillRoundedRect(-PW / 2 + 10 + i * 22, PH / 2 - 20, 16, 11, 3);
         g.fillStyle(0xffffff, 1);
-        g.fillCircle(0, -8, 19);
+        g.fillCircle(0, -6, 16);
         c.add(g);
-        c.add(this.add.text(0, -8, def.icon, { fontSize: '20px' }).setOrigin(0.5));
-        this.decorate(c, plot.id, lvl);
-        if (changed.includes(plot.id) && this.bridge.animations()) {
+        c.add(this.add.text(0, -6, def.icon, { fontSize: '17px' }).setOrigin(0.5));
+        if (def.id === 'monitor') {
+          const pulse = this.add.circle(PW / 2 - 12, -PH / 2 + 12, 5, 0xf43f5e, 0.5);
+          this.tweens.add({ targets: pulse, scale: 3, alpha: 0, duration: 1600, repeat: -1 });
+          c.add([this.add.circle(PW / 2 - 12, -PH / 2 + 12, 4, 0xf43f5e), pulse]);
+        }
+        if (changed.includes(def.id) && this.bridge.animations()) {
           c.setScale(0.4);
           this.tweens.add({ targets: c, scale: 1, duration: 520, ease: 'Back.easeOut' });
-          const ring = this.add.circle(plot.x, plot.y, 30, 0xffffff, 0).setStrokeStyle(4, col, 1);
+          const ring = this.add.circle(c.x, c.y, 24, 0xffffff, 0).setStrokeStyle(4, col, 1);
           this.world.add(ring);
           this.tweens.add({ targets: ring, radius: 110, alpha: 0, duration: 700, onComplete: () => ring.destroy() });
         }
       }
-      const zone = this.add.zone(0, 0, PW + 10, PH + 10).setInteractive({ useHandCursor: true });
-      zone.on('pointerover', () => this.tweens.add({ targets: c, scale: 1.05, duration: 140 }));
-      zone.on('pointerout', () => this.tweens.add({ targets: c, scale: 1, duration: 140 }));
-      c.add(zone);
       this.plotLayer.add(c);
     }
   }
 
-  private decorate(c: Phaser.GameObjects.Container, id: BuildingId, lvl: number) {
-    const g = this.add.graphics();
-    if (id === 'monitor') {
-      g.lineStyle(2, 0xffffff, 0.9);
-      g.lineBetween(PW / 2 - 18, -PH / 2 + 10, PW / 2 - 18, -PH / 2 - 10);
-      g.fillStyle(0xf43f5e, 1);
-      g.fillCircle(PW / 2 - 18, -PH / 2 - 10, 4);
-      const pulse = this.add.circle(PW / 2 - 18, -PH / 2 - 10, 6, 0xf43f5e, 0.4);
-      this.tweens.add({ targets: pulse, scale: 3, alpha: 0, duration: 1600, repeat: -1 });
-      c.add(pulse);
+  /* ------------------------------------------------------------ highlight */
+
+  private drawOverlay() {
+    const o = this.overlay;
+    o.clear();
+    const hl = this.bridge.getHighlight();
+    const pulse = 3 + Math.sin(this.time.now / 220) * 2;
+    if (this.hover && !this.drag) {
+      const hp = plotAt(CITY, this.hover.x, this.hover.y);
+      const hb = buildingAt(CITY, this.hover.x, this.hover.y);
+      const r = hp ? CITY.plots[hp] : hb ?? { x: this.hover.x, y: this.hover.y, w: 1, h: 1 };
+      o.lineStyle(2, 0xffffff, 0.85);
+      o.strokeRoundedRect(r.x * CELL + 1, r.y * CELL + 1, r.w * CELL - 2, r.h * CELL - 2, 8);
     }
-    if (id === 'bus') {
-      for (let i = 0; i < lvl + 1; i++) {
-        g.fillStyle(0x16a34a, 1);
-        g.fillRoundedRect(-PW / 2 - 10 + i * 30, PH / 2 + 6, 26, 10, 3);
-        g.fillStyle(0x93c5fd, 1);
-        g.fillRect(-PW / 2 - 6 + i * 30, PH / 2 + 8, 18, 3);
-      }
+    if (!hl) return;
+    o.lineStyle(4, 0x38bdf8, 1);
+    if (hl.type === 'plot') {
+      const r = CITY.plots[hl.id];
+      o.strokeRoundedRect(r.x * CELL - pulse, r.y * CELL - pulse, r.w * CELL + pulse * 2, r.h * CELL + pulse * 2, 14);
+    } else if (hl.type === 'building') {
+      const r = CITY.buildings[hl.id];
+      o.strokeRoundedRect(r.x * CELL - pulse, r.y * CELL - pulse, r.w * CELL + pulse * 2, r.h * CELL + pulse * 2, 10);
+    } else if (hl.type === 'road') {
+      o.strokeRoundedRect(hl.x * CELL - 2, hl.y * CELL - 2, CELL + 4, CELL + 4, 6);
+    } else {
+      const d = CITY.districts.find((q) => q.id === hl.id)!;
+      o.fillStyle(0x38bdf8, 0.08);
+      o.fillRect(d.x * CELL, d.y * CELL, d.w * CELL, d.h * CELL);
+      o.lineStyle(3, 0x38bdf8, 0.9);
+      o.strokeRect(d.x * CELL, d.y * CELL, d.w * CELL, d.h * CELL);
     }
-    if (id === 'greenery') {
-      for (let i = 0; i < 3 + lvl * 2; i++) {
-        g.fillStyle(0x4b9449, 1);
-        g.fillCircle(-PW / 2 - 6 + (i % 4) * 46, i < 4 ? -PH / 2 - 8 : PH / 2 + 8, 9);
-      }
-    }
-    if (id === 'waste') {
-      g.fillStyle(0x0f766e, 1);
-      for (let i = 0; i < lvl + 1; i++) g.fillRoundedRect(PW / 2 + 4, -PH / 2 + 8 + i * 18, 14, 14, 3);
-    }
-    if (id === 'parali') {
-      g.fillStyle(0xe9c46a, 1);
-      for (let i = 0; i < 3; i++) g.fillRoundedRect(-PW / 2 + 8 + i * 40, PH / 2 + 6, 32, 10, 5);
-    }
-    c.add(g);
   }
 
   /* ------------------------------------------------------------ life */
 
   private spawnVehicle(s: GameState, anywhere = false) {
-    const horizontal = Math.random() < 0.6;
-    const dir = Math.random() < 0.5 ? 1 : -1;
-    const busShare = 0.08 + s.buildings.bus * 0.1;
+    const [x, y] = this.roadTiles[Math.floor(Math.random() * this.roadTiles.length)];
+    const nb = roadNeighbours(CITY, x, y);
+    if (!nb.length) return;
+    const [tx, ty] = nb[Math.floor(Math.random() * nb.length)];
+    const busShare = 0.06 + s.buildings.bus * 0.08;
     const r = Math.random();
-    const kind = r < busShare ? 'ebus' : r < busShare + 0.08 ? 'dtc' : r < 0.45 ? 'car' : r < 0.65 ? 'auto' : r < 0.85 ? 'scooter' : 'truck';
-    const len = { ebus: 34, dtc: 34, car: 18, auto: 12, scooter: 8, truck: 28 }[kind];
-    const wid = { ebus: 12, dtc: 12, car: 10, auto: 9, scooter: 5, truck: 12 }[kind];
+    const kind = r < busShare ? 'ebus' : r < busShare + 0.07 ? 'dtc' : r < 0.42 ? 'car' : r < 0.62 ? 'auto' : r < 0.84 ? 'scooter' : 'truck';
+    const len = { ebus: 26, dtc: 26, car: 14, auto: 10, scooter: 7, truck: 22 }[kind];
+    const wid = { ebus: 10, dtc: 10, car: 8, auto: 8, scooter: 4, truck: 10 }[kind];
     const color = { ebus: 0x22a35a, dtc: 0xd94b3d, car: [0xffffff, 0x2f6fd6, 0xe0483e, 0x334155, 0xf4c84a][Math.floor(Math.random() * 5)], auto: 0x2f9e44, scooter: [0x111827, 0xef4444, 0x3b82f6][Math.floor(Math.random() * 3)], truck: 0xe8a33d }[kind];
     const v = this.add.container(0, 0);
-    const body = this.add.rectangle(0, 0, len, wid, color).setStrokeStyle(1, 0x000000, 0.15);
-    v.add(this.add.rectangle(2, 2, len, wid, 0x000000, 0.12));
-    v.add(body);
-    if (kind === 'auto') v.add(this.add.rectangle(-1, 0, 6, wid, 0xf6d32d));
+    v.add(this.add.rectangle(1.5, 1.5, len, wid, 0x000000, 0.15));
+    v.add(this.add.rectangle(0, 0, len, wid, color).setStrokeStyle(1, 0x000000, 0.15));
+    if (kind === 'auto') v.add(this.add.rectangle(-1, 0, 5, wid, 0xf6d32d));
     if (kind === 'ebus') v.add(this.add.rectangle(0, 0, len - 6, 3, 0x93c5fd));
     if (kind === 'dtc') v.add(this.add.rectangle(0, 0, len - 6, 3, 0xffe4b5));
-    if (kind === 'car') v.add(this.add.rectangle(dir * 2, 0, len * 0.4, wid - 4, 0x1e293b, 0.55));
-    const speed = (kind === 'scooter' ? 95 : kind === 'auto' ? 70 : kind === 'ebus' || kind === 'dtc' || kind === 'truck' ? 50 : 80) * (0.85 + Math.random() * 0.3);
-    if (horizontal) {
-      const y = H_ROADS[Math.floor(Math.random() * 3)] + dir * 8;
-      v.setPosition(anywhere ? Math.random() * RIVER_X : dir > 0 ? -60 : WW + 60, y);
-      this.vehicles.push({ obj: v, vx: speed * dir, vy: 0 });
-    } else {
-      const x = V_ROADS[Math.floor(Math.random() * 3)] - dir * 8;
-      v.setPosition(x, anywhere ? Math.random() * WH : dir > 0 ? -60 : WH + 60).setAngle(90);
-      this.vehicles.push({ obj: v, vx: 0, vy: speed * dir });
-    }
+    if (kind === 'car') v.add(this.add.rectangle(2, 0, len * 0.4, wid - 3, 0x1e293b, 0.5));
+    const speed = (kind === 'scooter' ? 2.4 : kind === 'auto' ? 1.9 : kind === 'car' ? 2.1 : 1.4) * (0.85 + Math.random() * 0.3);
     this.traffic.add(v);
+    const veh: Vehicle = { obj: v, fx: x, fy: y, tx, ty, t: anywhere ? Math.random() : 0, speed };
+    this.placeVehicle(veh);
+    this.vehicles.push(veh);
   }
 
-  private spawnWalkers() {
-    const cols = [0xf97316, 0x0ea5e9, 0xe11d48, 0xfacc15, 0x8b5cf6, 0x10b981];
-    for (let i = 0; i < 26; i++) {
-      const y = H_ROADS[i % 3] + (i % 2 ? 1 : -1) * (ROAD / 2 + 4);
-      const dot = this.add.circle(hash(i * 5) * RIVER_X, y, 3, cols[i % cols.length]);
-      this.traffic.add(dot);
-      this.walkers.push({ obj: dot, vx: (hash(i) < 0.5 ? -1 : 1) * (8 + hash(i * 3) * 10), vy: 0, x0: 0, x1: RIVER_X - 10, y0: y, y1: y });
-    }
+  private placeVehicle(v: Vehicle) {
+    const dx = v.tx - v.fx, dy = v.ty - v.fy;
+    const lane = 7; // India drives on the left
+    v.obj.setPosition((lerp(v.fx, v.tx, v.t) + 0.5) * CELL + dy * lane, (lerp(v.fy, v.ty, v.t) + 0.5) * CELL - dx * lane);
+    v.obj.setAngle(dx !== 0 ? (dx > 0 ? 0 : 180) : dy > 0 ? 90 : 270);
   }
 
-  private buildTrain() {
-    this.train.removeAll(true);
-    for (let i = 0; i < 4; i++) {
-      this.train.add(this.add.rectangle(i * 40, 0, 37, 14, 0xf5f3ff).setStrokeStyle(2, 0x9b6bd6));
-      this.train.add(this.add.rectangle(i * 40, 0, 28, 3, 0x9b6bd6));
+  private stepVehicle(v: Vehicle, dt: number) {
+    v.t += v.speed * dt;
+    while (v.t >= 1) {
+      v.t -= 1;
+      const opts = roadNeighbours(CITY, v.tx, v.ty).filter(([nx, ny]) => !(nx === v.fx && ny === v.fy));
+      const dx = v.tx - v.fx, dy = v.ty - v.fy;
+      const straight = opts.find(([nx, ny]) => nx - v.tx === dx && ny - v.ty === dy);
+      let next: [number, number];
+      if (!opts.length) next = [v.fx, v.fy];
+      else if (straight && Math.random() < 0.65) next = straight;
+      else next = opts[Math.floor(Math.random() * opts.length)];
+      v.fx = v.tx;
+      v.fy = v.ty;
+      [v.tx, v.ty] = next;
     }
-    this.train.setPosition(-200, METRO_Y);
+    this.placeVehicle(v);
+  }
+
+  private buildTrains() {
+    CITY.metro.lines.forEach((l, i) => {
+      const c = this.add.container(0, 0);
+      const horiz = l.y1 === l.y2;
+      for (let k = 0; k < 4; k++) c.add(this.add.rectangle(horiz ? k * 30 : 0, horiz ? 0 : k * 30, horiz ? 27 : 11, horiz ? 11 : 27, 0xf5f3ff).setStrokeStyle(2, 0x9b6bd6));
+      this.traffic.add(c);
+      this.trains.push({ obj: c, line: i, t: Math.random(), dir: 1 });
+    });
   }
 
   update(_t: number, delta: number) {
@@ -556,9 +651,8 @@ export class CityScene extends Phaser.Scene {
     const b = Math.round(haze * 8);
     if (b !== this.bucket) {
       this.bucket = b;
-      this.drawMap(haze);
+      this.drawCity(haze);
       this.drawTrees(s, haze);
-      if (!this.train.length) this.buildTrain();
     }
     const key = BUILDINGS.map((x) => s.buildings[x.id]).join(',');
     if (key !== this.levelsKey) {
@@ -568,51 +662,37 @@ export class CityScene extends Phaser.Scene {
       this.drawPlots(s, changed);
       this.drawTrees(s, haze);
     }
+    this.drawOverlay();
 
-    // selection ring
-    const sel = this.bridge.getSelected();
-    this.selRing.clear();
-    if (sel) {
-      const p = PLOTS.find((q) => q.id === sel)!;
-      const pulse = 4 + Math.sin(this.time.now / 200) * 2;
-      this.selRing.lineStyle(4, 0x38bdf8, 1);
-      this.selRing.strokeRoundedRect(p.x - PW / 2 - pulse - 4, p.y - PH / 2 - pulse - 4, PW + 2 * pulse + 8, PH + 2 * pulse + 8, 20);
-    }
-
-    // haze over the map (eased so changes feel gradual)
     this.hazeT += (haze - this.hazeT) * Math.min(1, dt * 1.5);
-    this.haze.setFillStyle(0xa59c87, this.hazeT * 0.42);
+    this.haze.setFillStyle(0xa59c87, this.hazeT * 0.4);
     this.smog.emitting = anim && this.hazeT > 0.15;
     this.smog.setAlpha(this.hazeT);
 
-    // subtle night
-    const tod = timeOfDay(s);
+    const tod = weekProgress(s);
     const night = tod > 0.85 ? (tod - 0.85) / 0.15 : tod < 0.05 ? 1 - tod / 0.05 : 0;
-    this.night.setFillStyle(0x101a3d, night * 0.28);
-
-    // weather & industry
-    const raining = s.effects.some((e) => (e.modifier.dispersionMult ?? 1) >= 1.5) || (seasonOf(dayOf(s)).id === 'monsoon' && tod > 0.35 && tod < 0.5);
+    this.night.setFillStyle(0x101a3d, night * 0.25);
+    const raining = s.effects.some((e) => (e.modifier.dispersionMult ?? 1) >= 1.5) || (seasonOf(weekOf(s)).id === 'monsoon' && tod > 0.35 && tod < 0.5);
     this.rain.emitting = anim && raining;
     this.smoke.emitting = anim;
-    this.smoke.frequency = [220, 420, 800, 1600][Math.min(3, s.buildings.industrial)];
+    this.smoke.frequency = [140, 260, 480, 900][Math.min(3, s.buildings.industrial)];
+    this.dust.emitting = anim;
+    this.dust.frequency = [260, 420, 700, 1000, 1400][Math.min(4, s.buildings.dust)];
 
     if (!anim) return;
-    this.train.x += 140 * dt;
-    if (this.train.x > WW + 220) this.train.x = -260;
-
-    const target = Math.max(10, 26 - s.buildings.bus * 4);
-    if (this.vehicles.length < target && Math.random() < dt * 4) this.spawnVehicle(s);
-    this.vehicles = this.vehicles.filter((v) => {
-      v.obj.x += v.vx * dt;
-      v.obj.y += v.vy * dt;
-      const out = v.obj.x < -100 || v.obj.x > WW + 100 || v.obj.y < -100 || v.obj.y > WH + 100;
-      if (out) v.obj.destroy();
-      return !out;
-    });
-    for (const w of this.walkers) {
-      w.obj.x += w.vx * dt;
-      if (w.obj.x < w.x0) w.obj.x = w.x1;
-      if (w.obj.x > w.x1) w.obj.x = w.x0;
+    for (const tr of this.trains) {
+      const l = CITY.metro.lines[tr.line];
+      tr.t += dt * 0.05 * tr.dir;
+      if (tr.t > 1 || tr.t < 0) {
+        tr.dir *= -1;
+        tr.t = Phaser.Math.Clamp(tr.t, 0, 1);
+      }
+      const x = lerp(l.x1, l.x2, tr.t) * CELL + 12, y = lerp(l.y1, l.y2, tr.t) * CELL + 12;
+      tr.obj.setPosition(l.y1 === l.y2 ? x - 45 : x, l.y1 === l.y2 ? y : y - 45);
     }
+    const target = Math.max(45, 80 - s.buildings.bus * 8);
+    if (this.vehicles.length < target && Math.random() < dt * 6) this.spawnVehicle(s);
+    if (this.vehicles.length > target + 4) this.vehicles.pop()?.obj.destroy();
+    for (const v of this.vehicles) this.stepVehicle(v, dt);
   }
 }

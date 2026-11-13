@@ -1,4 +1,4 @@
-import { CAMPAIGN_DAYS, OFFLINE, SAVE_KEY, SAVE_VERSION, TICKS_PER_DAY } from '../config/balance';
+import { CAMPAIGN_WEEKS, OFFLINE, SAVE_KEY, SAVE_VERSION, TICKS_PER_WEEK } from '../config/balance';
 import { BUILDINGS } from '../config/balance';
 import { newGame, step } from './core';
 import type { GameState, OfflineSummary } from './types';
@@ -39,20 +39,25 @@ export function validate(raw: unknown): GameState | null {
     const lv = (st.buildings as Record<string, unknown>)[b.id];
     merged.buildings[b.id] = isNum(lv) ? Math.max(0, Math.min(b.levels.length, Math.floor(lv as number))) : 0;
   }
-  for (const k of ['research', 'effects', 'events', 'eventHistory', 'news', 'history', 'daily', 'objectives', 'achievements', 'stageObjectivesDone', 'committeesPending', 'weekReports'] as const) {
+  for (const k of ['research', 'effects', 'events', 'eventHistory', 'news', 'history', 'weekly', 'objectives', 'achievements', 'stageObjectivesDone', 'committeesPending', 'phaseReports'] as const) {
     if (!Array.isArray(merged[k])) (merged as unknown as Record<string, unknown>)[k] = (base as unknown as Record<string, unknown>)[k];
   }
   merged.version = SAVE_VERSION;
   return merged;
 }
 
-export type LoadResult = { state: GameState; status: 'loaded' | 'new' | 'corrupt'; savedAt?: number };
+export type LoadResult = { state: GameState; status: 'loaded' | 'new' | 'corrupt' | 'outdated'; savedAt?: number };
 
 export function load(storage: StorageLike, now = Date.now()): LoadResult {
   const raw = storage.getItem(SAVE_KEY);
   if (!raw) return { state: newGame(undefined, now), status: 'new' };
   try {
     const parsed = JSON.parse(raw);
+    // saves from the 4-week prototype use a different clock; start a fresh 52-week term
+    if (parsed && typeof parsed.version === 'number' && parsed.version < SAVE_VERSION) {
+      storage.removeItem(SAVE_KEY);
+      return { state: newGame(undefined, now), status: 'outdated' };
+    }
     const st = validate(parsed);
     if (!st) throw new Error('invalid');
     return { state: st, status: 'loaded', savedAt: (parsed as SaveFile).savedAt };
@@ -81,9 +86,9 @@ export function applyOffline(s: GameState, now: number): { state: GameState; sum
   if (elapsed < 30 || (s.ended && !s.sandbox)) return { state: s, summary: null };
   const seconds = Math.min(elapsed, OFFLINE.maxSeconds);
   let ticks = Math.floor(seconds * OFFLINE.efficiency);
-  ticks = Math.min(ticks, OFFLINE.maxDaysOfIncome * TICKS_PER_DAY);
+  ticks = Math.min(ticks, OFFLINE.maxWeeksOfIncome * TICKS_PER_WEEK);
   // never auto-finish the campaign while away
-  const lastTick = CAMPAIGN_DAYS * TICKS_PER_DAY - 1;
+  const lastTick = CAMPAIGN_WEEKS * TICKS_PER_WEEK - 1;
   if (!s.sandbox) ticks = Math.max(0, Math.min(ticks, lastTick - s.tick));
   const next = structuredClone(s);
   const before = { ...next.res };

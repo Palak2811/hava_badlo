@@ -19,7 +19,7 @@ export default function CityView() {
         type: Phaser.AUTO,
         parent: host.current,
         transparent: false,
-        backgroundColor: '#8fb7d9',
+        backgroundColor: '#f0eadb',
         scale: { mode: Phaser.Scale.RESIZE, width: Math.max(320, host.current.clientWidth), height: Math.max(180, host.current.clientHeight) },
         banner: false,
         audio: { noAudio: true },
@@ -27,8 +27,12 @@ export default function CityView() {
       game.scene.add('city', CityScene, true, {
         bridge: {
           getState: () => useGame.getState().game,
-          getSelected: () => useGame.getState().selected,
-          onSelect: (id: import('../engine/types').BuildingId | null) => useGame.getState().select(id),
+          getHighlight: () => {
+            const st = useGame.getState();
+            return st.selected ? { type: 'plot' as const, id: st.selected } : st.inspect;
+          },
+          onPick: (p: import('../engine/map').Pick | null) => useGame.getState().onPick(p),
+          onCamera: (k: 'pan' | 'zoom') => useGame.getState().tutorialEvent(k),
           animations: () => useGame.getState().settings.animations,
         },
       });

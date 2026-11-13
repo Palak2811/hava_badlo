@@ -2,21 +2,21 @@
 
 *A nation-sized problem. A government-sized budget.*
 
-A satirical idle / city-management game set in Delhi. You are the new Commissioner of the Department of Clean Air and have a 4-week term (28 in-game days) to bring the AQI down. You can do it for real with infrastructure, research and hard choices, or you can make it *look* done.
+A satirical idle / city-management game set in Delhi. **52 weeks. One city. One election.** You are Commissioner of Delhi's Clean Air Mission: improve the air, grow the city, keep the economy and the voters happy, and win the election in week 52. You can do it for real with infrastructure, research and hard choices, or you can make it *look* done.
 
 ## Run
 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
-npm test           # 54 unit tests (Vitest)
+npm test           # 63 unit tests (Vitest)
 npm run lint
 npm run typecheck
 npm run build      # production build into dist/
 npm run preview    # serve the production build
 ```
 
-One in-game day lasts about one real minute at 1× speed. Use ⏸ / 1× / 2× / 4× in the top bar.
+One in-game week lasts about one real minute at 1× speed (pause / 1× / 2× / 3× in the top bar). The term is split into four 13-week phases: Establishing Credibility, Rapid Development, The Great Delhi Smog, Election Countdown.
 
 ## Architecture
 
@@ -27,13 +27,14 @@ src/
     events.ts     ← 16 events with choices, costs, timed effects and state-dependent outcomes
     content.ts    ← achievements, objectives, stage goals, endings, news templates, tutorial
   engine/         ← pure TypeScript simulation; no DOM and no rendering, deterministic per seed
+    map.ts        ← 64×40 grid city: roads, river, 12 neighbourhoods, ~500 buildings, plots, metro, bus stops
     core.ts       ← modifiers, pollution model, economy, actions, events, progression, endings, tick
     save.ts       ← versioned localStorage save, validation/migration, corrupt-save recovery, offline progress
     rng.ts        ← seeded Mulberry32; RNG state lives in the save
   state/store.ts  ← Zustand store: game loop glue, autosave, toasts, sound triggers
-  city/           ← Phaser 3 scene (lazy-loaded): flat top-down Delhi neighbourhood, drag to pan on phones
+  city/           ← Phaser 3 scene (lazy-loaded): renders the grid city; pan, wheel/pinch zoom, picking, road-following traffic
   audio/sound.ts  ← procedural WebAudio SFX plus a tanpura drone and Raag Bhupali music (no audio files)
-  ui/             ← map-first React UI: floating HUD, contextual panel, drawers, weekly briefing/report, decision screen
+  ui/             ← map-first React UI: opening story, Secretary tutorial, HUD, inspection panels, drawers, decisions, reports
 tests/engine.test.ts
 ```
 
@@ -45,6 +46,15 @@ tests/engine.test.ts
 - AQI comes from concentration through NAQI-style PM2.5 breakpoints
 - official AQI = AQI × (1 − perception bias from optics schemes)
 - a parallel **no-action baseline** runs alongside to measure the player's real impact (Clean Air Credits, ending)
+
+## Roadmap (redesign phases)
+
+- [x] Phase 1: opening story, Secretary tutorial, grid city, camera pan/zoom, selection of buildings, roads and neighbourhoods
+- [ ] Phase 2: placement & demolition, road building, zoning, construction timers
+- [ ] Phase 3: population, commuting traffic, organic growth
+- [ ] Phase 4: neighbourhood AQI, pollution & economy map modes, approvals
+- [ ] Phase 5: weekly settlement, objectives & election evaluation
+- [ ] Phase 6: polish & balancing
 
 ## Notes and limitations
 

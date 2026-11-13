@@ -10,14 +10,14 @@
  * A parallel "baseline" concentration evolves with zero player controls to measure impact.
  */
 import {
-  AQI_BREAKPOINTS, BUILDINGS, BUILDING_MAP, CAMPAIGN_DAYS, DAYS_PER_WEEK, COMMITTEE, CREDIBILITY, ECONOMY, EVENTS_CFG,
-  OPTICS, OPTICS_MAP, POLLUTION, PRESSURE, RESEARCH, RESEARCH_MAP, SAVE_VERSION, SEASONS, STAGE2_AUTO_DAY,
-  STAGE2_GRANT, START, START_PARTICIPATION, TICKS_PER_DAY, TRUST, VICTORY, type SeasonDef,
+  AQI_BREAKPOINTS, BUILDINGS, BUILDING_MAP, CAMPAIGN_WEEKS, WEEKS_PER_PHASE, COMMITTEE, CREDIBILITY, ECONOMY, EVENTS_CFG,
+  OPTICS, OPTICS_MAP, POLLUTION, PRESSURE, RESEARCH, RESEARCH_MAP, SAVE_VERSION, SEASONS, STAGE2_AUTO_WEEK,
+  STAGE2_GRANT, START, START_PARTICIPATION, TICKS_PER_WEEK, TRUST, VICTORY, type SeasonDef,
 } from '../config/balance';
 import { EVENTS, EVENT_MAP, type EventCtx } from '../config/events';
 import { ACHIEVEMENTS, NEWS_TEMPLATES, OBJECTIVE_TEMPLATES, STAGE_OBJECTIVES } from '../config/content';
 import { nextRandom } from './rng';
-import { SOURCES, type WeekSnap, type BuildingId, type Cost, type Deltas, type EndingId, type GameState, type Modifier, type NewsKind, type Source } from './types';
+import { SOURCES, type PhaseSnap, type BuildingId, type Cost, type Deltas, type EndingId, type GameState, type Modifier, type NewsKind, type Source } from './types';
 
 export const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -49,24 +49,26 @@ export function newGame(seed = Date.now() % 2147483647, now = Date.now()): GameS
     news: [],
     newsSeq: 0,
     history: [],
-    daily: [],
+    weekly: [],
     objectives: [],
     stage: 1,
     stageObjectivesDone: [],
     achievements: [],
     stats: {
       highestAqi: 0, lowestAqi: 999, totalSpent: 0, eventsHandled: 0, opticsUsed: 0, committees: 0, reports: 0,
-      purifiers: 0, toughDecisions: 0, exposures: 0, buildingsBought: 0, upgradesBought: 0, cacEarned: 0, aqiReductionDays: 0, objectivesDone: 0,
+      purifiers: 0, toughDecisions: 0, exposures: 0, buildingsBought: 0, upgradesBought: 0, cacEarned: 0, aqiReductionWeeks: 0, objectivesDone: 0,
     },
     ended: null,
     sandbox: false,
     tutorialDone: false,
+    introDone: false,
+    tutorialStep: 0,
     lastActive: now,
     aqiRenamed: false,
-    pressureMaxedDays: 0,
-    lastOpticsDay: 0,
-    weekStart: null as unknown as WeekSnap,
-    weekReports: [],
+    pressureMaxedWeeks: 0,
+    lastOpticsWeek: 0,
+    phaseStart: null as unknown as PhaseSnap,
+    phaseReports: [],
     reportPending: false,
     briefingSeen: 0,
   };
@@ -74,8 +76,8 @@ export function newGame(seed = Date.now() % 2147483647, now = Date.now()): GameS
   const target = steadyConc(s, false);
   s.conc = target;
   s.baselineConc = steadyConc(s, true);
-  s.weekStart = weekSnap(s);
-  rollDailyObjectives(s);
+  s.phaseStart = phaseSnap(s);
+  rollWeeklyObjectives(s);
   addNews(s, 'gov', 'New Commissioner Appointed to Department of Clean Air; Department Consists of One Desk', 'Your office has a chair, a kettle and a view of the smog. Let us begin.');
   sample(s);
   return s;
@@ -83,11 +85,11 @@ export function newGame(seed = Date.now() % 2147483647, now = Date.now()): GameS
 
 /* -------------------------------------------------------------- calendar */
 
-export const dayOf = (s: GameState) => Math.floor(s.tick / TICKS_PER_DAY) + 1;
-export const timeOfDay = (s: GameState) => (s.tick % TICKS_PER_DAY) / TICKS_PER_DAY;
-export function seasonOf(day: number): SeasonDef {
+export const weekOf = (s: GameState) => Math.floor(s.tick / TICKS_PER_WEEK) + 1;
+export const weekProgress = (s: GameState) => (s.tick % TICKS_PER_WEEK) / TICKS_PER_WEEK;
+export function seasonOf(week: number): SeasonDef {
   let cur = SEASONS[0];
-  for (const se of SEASONS) if (day >= se.fromDay) cur = se;
+  for (const se of SEASONS) if (week >= se.fromWeek) cur = se;
   return cur;
 }
 
@@ -100,9 +102,9 @@ export function collectModifiers(s: GameState): Modifier[] {
     const lvl = s.buildings[b.id];
     if (lvl <= 0) continue;
     const m = b.levels[lvl - 1].modifier;
-    if (b.maturityDays && m.control) {
-      const age = (s.tick - (s.builtAt[b.id] ?? s.tick)) / TICKS_PER_DAY;
-      const f = clamp(0.25 + age / b.maturityDays, 0.25, 1);
+    if (b.maturityWeeks && m.control) {
+      const age = (s.tick - (s.builtAt[b.id] ?? s.tick)) / TICKS_PER_WEEK;
+      const f = clamp(0.25 + age / b.maturityWeeks, 0.25, 1);
       const control: Partial<Record<Source, number>> = {};
       for (const k of Object.keys(m.control) as Source[]) control[k] = (m.control[k] ?? 0) * f;
       mods.push({ ...m, control });
@@ -121,15 +123,15 @@ export interface Aggregate {
   control: Record<Source, number>;
   emissionMult: Record<Source, number>;
   dispersionMult: number;
-  incomePerDay: number;
+  incomePerWeek: number;
   incomeMult: number;
   maintenanceMult: number;
-  researchPerDay: number;
+  researchPerWeek: number;
   researchMult: number;
-  trustPerDay: number;
-  pressurePerDay: number;
-  capitalPerDay: number;
-  participationPerDay: number;
+  trustPerWeek: number;
+  pressurePerWeek: number;
+  capitalPerWeek: number;
+  participationPerWeek: number;
   perceptionBias: number;
   eventSeverityMult: number;
   coverage: number;
@@ -139,23 +141,23 @@ export function aggregate(mods: Modifier[]): Aggregate {
   const keep: Record<Source, number> = { transport: 1, dust: 1, industry: 1, agriculture: 1, waste: 1, other: 1 };
   const em: Record<Source, number> = { transport: 1, dust: 1, industry: 1, agriculture: 1, waste: 1, other: 1 };
   const a: Aggregate = {
-    control: { ...keep }, emissionMult: em, dispersionMult: 1, incomePerDay: 0, incomeMult: 1, maintenanceMult: 1,
-    researchPerDay: 0, researchMult: 1, trustPerDay: 0, pressurePerDay: 0, capitalPerDay: 0, participationPerDay: 0,
+    control: { ...keep }, emissionMult: em, dispersionMult: 1, incomePerWeek: 0, incomeMult: 1, maintenanceMult: 1,
+    researchPerWeek: 0, researchMult: 1, trustPerWeek: 0, pressurePerWeek: 0, capitalPerWeek: 0, participationPerWeek: 0,
     perceptionBias: 0, eventSeverityMult: 1, coverage: 0,
   };
   for (const m of mods) {
     if (m.control) for (const k of SOURCES) if (m.control[k]) keep[k] *= 1 - (m.control[k] as number);
     if (m.emissionMult) for (const k of SOURCES) if (m.emissionMult[k] !== undefined) em[k] *= m.emissionMult[k] as number;
     if (m.dispersionMult) a.dispersionMult *= m.dispersionMult;
-    a.incomePerDay += m.incomePerDay ?? 0;
+    a.incomePerWeek += m.incomePerWeek ?? 0;
     if (m.incomeMult) a.incomeMult *= m.incomeMult;
     if (m.maintenanceMult) a.maintenanceMult *= m.maintenanceMult;
-    a.researchPerDay += m.researchPerDay ?? 0;
+    a.researchPerWeek += m.researchPerWeek ?? 0;
     if (m.researchMult) a.researchMult *= m.researchMult;
-    a.trustPerDay += m.trustPerDay ?? 0;
-    a.pressurePerDay += m.pressurePerDay ?? 0;
-    a.capitalPerDay += m.capitalPerDay ?? 0;
-    a.participationPerDay += m.participationPerDay ?? 0;
+    a.trustPerWeek += m.trustPerWeek ?? 0;
+    a.pressurePerWeek += m.pressurePerWeek ?? 0;
+    a.capitalPerWeek += m.capitalPerWeek ?? 0;
+    a.participationPerWeek += m.participationPerWeek ?? 0;
     a.perceptionBias += m.perceptionBias ?? 0;
     if (m.eventSeverityMult) a.eventSeverityMult *= m.eventSeverityMult;
     a.coverage += m.coverage ?? 0;
@@ -171,7 +173,7 @@ export const agg = (s: GameState) => aggregate(collectModifiers(s));
 /* -------------------------------------------------------------- pollution */
 
 export function emissions(s: GameState, baseline = false, a: Aggregate = agg(s)): Record<Source, number> {
-  const se = seasonOf(dayOf(s));
+  const se = seasonOf(weekOf(s));
   // natural (non-player) emission spikes like Diwali apply to both worlds; player reductions only to actual
   const out = {} as Record<Source, number>;
   for (const k of SOURCES) {
@@ -195,13 +197,13 @@ function naturalDispersion(s: GameState) {
 }
 
 export function dispersion(s: GameState, a: Aggregate = agg(s)) {
-  return seasonOf(dayOf(s)).dispersion * s.windFactor * a.dispersionMult;
+  return seasonOf(weekOf(s)).dispersion * s.windFactor * a.dispersionMult;
 }
 
 export function steadyConc(s: GameState, baseline: boolean, a: Aggregate = agg(s)) {
   const e = emissions(s, baseline, a);
   const total = SOURCES.reduce((t, k) => t + e[k], 0);
-  const disp = baseline ? seasonOf(dayOf(s)).dispersion * s.windFactor * naturalDispersion(s) : dispersion(s, a);
+  const disp = baseline ? seasonOf(weekOf(s)).dispersion * s.windFactor * naturalDispersion(s) : dispersion(s, a);
   return (POLLUTION.emissionToConc * total) / Math.max(0.2, disp);
 }
 
@@ -237,7 +239,7 @@ export function aqiBand(aqi: number): AqiBand {
 
 /* -------------------------------------------------------------- economy */
 
-export function maintenancePerDay(s: GameState, a: Aggregate = agg(s)) {
+export function maintenancePerWeek(s: GameState, a: Aggregate = agg(s)) {
   let m = 0;
   for (const b of BUILDINGS) {
     const lvl = s.buildings[b.id];
@@ -245,18 +247,18 @@ export function maintenancePerDay(s: GameState, a: Aggregate = agg(s)) {
   }
   return m * a.maintenanceMult;
 }
-export function incomePerDay(s: GameState, a: Aggregate = agg(s)) {
+export function incomePerWeek(s: GameState, a: Aggregate = agg(s)) {
   const trustMult = ECONOMY.trustIncomeBase + (s.res.trust / 100) * ECONOMY.trustIncomeSlope;
-  return (ECONOMY.baseIncomePerDay * trustMult + a.incomePerDay) * a.incomeMult;
+  return (ECONOMY.baseIncomePerWeek * trustMult + a.incomePerWeek) * a.incomeMult;
 }
-export const researchPerDay = (_s: GameState, a: Aggregate) => a.researchPerDay * a.researchMult;
-export const capitalPerDay = (_s: GameState, a: Aggregate) => ECONOMY.baseCapitalPerDay + a.capitalPerDay;
+export const researchPerWeek = (_s: GameState, a: Aggregate) => a.researchPerWeek * a.researchMult;
+export const capitalPerWeek = (_s: GameState, a: Aggregate) => ECONOMY.baseCapitalPerWeek + a.capitalPerWeek;
 
 export function rates(s: GameState) {
   const a = agg(s);
-  const income = incomePerDay(s, a);
-  const maint = maintenancePerDay(s, a);
-  return { income, maintenance: maint, net: income - maint, research: researchPerDay(s, a), capital: capitalPerDay(s, a), a };
+  const income = incomePerWeek(s, a);
+  const maint = maintenancePerWeek(s, a);
+  return { income, maintenance: maint, net: income - maint, research: researchPerWeek(s, a), capital: capitalPerWeek(s, a), a };
 }
 
 export function canAfford(s: GameState, c: Cost) {
@@ -292,7 +294,7 @@ export function applyDeltas(s: GameState, d: Deltas, severity = 1) {
 
 export function addNews(s: GameState, kind: NewsKind, headline: string, body?: string) {
   s.newsSeq += 1;
-  s.news.unshift({ id: s.newsSeq, tick: s.tick, day: dayOf(s), kind, headline, body });
+  s.news.unshift({ id: s.newsSeq, tick: s.tick, week: weekOf(s), kind, headline, body });
   if (s.news.length > 80) s.news.length = 80;
 }
 /** Cosmetic headline choice uses a hash, NOT the simulation RNG, so flavour text never changes outcomes. */
@@ -307,7 +309,7 @@ function templ(s: GameState, key: keyof typeof NEWS_TEMPLATES, vars: Record<stri
 
 export function buildingUnlocked(s: GameState, id: BuildingId) {
   const u = BUILDING_MAP[id].unlock;
-  if (u.day && dayOf(s) < u.day) return false;
+  if (u.week && weekOf(s) < u.week) return false;
   if (u.building && s.buildings[u.building] <= 0) return false;
   if (u.stage && s.stage < u.stage) return false;
   return true;
@@ -393,13 +395,13 @@ export function executeOptics(s: GameState, id: string): ActionResult {
   if (id === 'press') d.trust = s.res.credibility > 50 ? 2 : -3;
   applyDeltas(s, d);
   if (o.temp) addEffect(s, `opt_${id}`, o.temp.label, o.temp.days, o.temp.modifier, 'optics');
-  s.opticsCooldown[id] = s.tick + o.cooldownDays * TICKS_PER_DAY;
+  s.opticsCooldown[id] = s.tick + o.cooldownWeeks * TICKS_PER_WEEK;
   s.stats.opticsUsed += 1;
-  s.lastOpticsDay = dayOf(s);
+  s.lastOpticsWeek = weekOf(s);
   switch (id) {
     case 'committee':
       s.stats.committees += 1;
-      s.committeesPending.push({ until: s.tick + COMMITTEE.reportDays * TICKS_PER_DAY, name: `Committee #${s.stats.committees}` });
+      s.committeesPending.push({ until: s.tick + COMMITTEE.reportWeeks * TICKS_PER_WEEK, name: `Committee #${s.stats.committees}` });
       addNews(s, 'satire', templ(s, 'committee', { n: s.stats.committees }));
       break;
     case 'purifier':
@@ -415,7 +417,7 @@ export function executeOptics(s: GameState, id: string): ActionResult {
       addNews(s, 'satire', templ(s, 'rename'));
       break;
     case 'victory':
-      s.victoryCheckAt = s.tick + VICTORY.checkDays * TICKS_PER_DAY;
+      s.victoryCheckAt = s.tick + VICTORY.checkWeeks * TICKS_PER_WEEK;
       addNews(s, 'breaking', templ(s, 'victory'));
       break;
     default:
@@ -435,36 +437,36 @@ export function claimGrant(s: GameState): ActionResult {
 
 export function addEffect(s: GameState, id: string, label: string, days: number, modifier: Modifier, kind: 'good' | 'bad' | 'optics') {
   s.effects = s.effects.filter((e) => e.id !== id);
-  s.effects.push({ id, label, until: s.tick + Math.round(days * TICKS_PER_DAY), modifier, kind });
+  s.effects.push({ id, label, until: s.tick + Math.round(days * TICKS_PER_WEEK), modifier, kind });
 }
 
 /* -------------------------------------------------------------- events */
 
 export function eventCtx(s: GameState): EventCtx {
-  const day = dayOf(s);
+  const day = weekOf(s);
   return { s, day, season: seasonOf(day).id, aqi: actualAqi(s), official: officialAqi(s) };
 }
 
 export function spawnEvent(s: GameState, defId: string) {
   const uid = `${defId}_${s.tick}_${s.events.length}`;
-  s.events.push({ uid, defId, at: s.tick, expires: s.tick + Math.round(EVENTS_CFG.expireDays * TICKS_PER_DAY) });
-  s.eventCooldown[defId] = dayOf(s) + EVENT_MAP[defId].cooldownDays;
+  s.events.push({ uid, defId, at: s.tick, expires: s.tick + Math.round(EVENTS_CFG.expireWeeks * TICKS_PER_WEEK) });
+  s.eventCooldown[defId] = weekOf(s) + EVENT_MAP[defId].cooldownWeeks;
   const def = EVENT_MAP[defId];
   addNews(s, def.severity >= 3 ? 'breaking' : 'alert', `${def.title.toUpperCase()}`, def.description);
 }
 
 /** Choose and spawn random events at the start of a day. Deterministic via seeded RNG. */
 export function rollEvents(s: GameState) {
-  const day = dayOf(s);
+  const day = weekOf(s);
   const ctx = eventCtx(s);
   // scripted
   for (const e of EVENTS) {
-    if (e.scriptedDay === day && !s.eventHistory.some((h) => h.defId === e.id) && !s.events.some((x) => x.defId === e.id)) spawnEvent(s, e.id);
+    if (e.scriptedWeek === day && !s.eventHistory.some((h) => h.defId === e.id) && !s.events.some((x) => x.defId === e.id)) spawnEvent(s, e.id);
   }
   if (s.events.length >= EVENTS_CFG.maxActive) return;
   const r = nextRandom(s);
   if (r > EVENTS_CFG.dailyChance) return;
-  const pool = EVENTS.filter((e) => !e.scriptedDay && (s.eventCooldown[e.id] ?? 0) <= day && !s.events.some((x) => x.defId === e.id) && e.condition(ctx));
+  const pool = EVENTS.filter((e) => !e.scriptedWeek && (s.eventCooldown[e.id] ?? 0) <= day && !s.events.some((x) => x.defId === e.id) && e.condition(ctx));
   if (!pool.length) return;
   const weights = pool.map((e) => Math.max(0, e.weight(ctx)));
   const total = weights.reduce((a, b) => a + b, 0);
@@ -511,7 +513,7 @@ export function resolveEvent(s: GameState, uid: string, choiceIdx: number, auto 
   }
   if (ch.tough) s.stats.toughDecisions += 1;
   s.events = s.events.filter((e) => e.uid !== uid);
-  s.eventHistory.push({ defId: def.id, choice: choiceIdx, day: dayOf(s) });
+  s.eventHistory.push({ defId: def.id, choice: choiceIdx, week: weekOf(s) });
   if (!auto) s.stats.eventsHandled += 1;
   addNews(s, ch.headline ? 'satire' : 'gov', ch.headline ?? `${def.title}: ${ch.label}`, (auto ? 'No decision was taken in time. ' : '') + text);
   checkProgress(s);
@@ -520,8 +522,8 @@ export function resolveEvent(s: GameState, uid: string, choiceIdx: number, auto 
 
 /* -------------------------------------------------------------- objectives & progress */
 
-export function rollDailyObjectives(s: GameState) {
-  const day = dayOf(s);
+export function rollWeeklyObjectives(s: GameState) {
+  const day = weekOf(s);
   const pool = [...OBJECTIVE_TEMPLATES];
   const chosen = [];
   // always one AQI objective after day 2, plus two random others
@@ -538,13 +540,13 @@ export function rollDailyObjectives(s: GameState) {
   });
 }
 
-function evaluateObjectives(s: GameState, dayEnd: boolean) {
+function evaluateObjectives(s: GameState, weekEnd: boolean) {
   for (const o of s.objectives) {
     if (o.done) continue;
     const t = OBJECTIVE_TEMPLATES.find((x) => x.id === o.templateId);
     if (!t) continue;
     let done = false;
-    if (t.belowAtDayEnd) done = dayEnd && actualAqi(s) <= o.target;
+    if (t.belowAtWeekEnd) done = weekEnd && actualAqi(s) <= o.target;
     else done = t.metric(s) - o.start >= o.target;
     if (done) {
       o.done = true;
@@ -573,7 +575,7 @@ export function unlockStage2(s: GameState, auto: boolean) {
 }
 
 export function checkAchievements(s: GameState) {
-  const day = dayOf(s);
+  const day = weekOf(s);
   const aqi = actualAqi(s);
   const owned = (id: string) => s.achievements.includes(id);
   const cond: Record<string, boolean> = {
@@ -613,8 +615,8 @@ export interface EndingInput {
 }
 
 export function endingInput(s: GameState): EndingInput {
-  const last = s.daily.slice(-5);
-  const avg = (f: (d: GameState['daily'][number]) => number, fallback: number) => (last.length ? last.reduce((t, d) => t + f(d), 0) / last.length : fallback);
+  const last = s.weekly.slice(-5);
+  const avg = (f: (d: GameState['weekly'][number]) => number, fallback: number) => (last.length ? last.reduce((t, d) => t + f(d), 0) / last.length : fallback);
   const act = avg((d) => d.aqi, actualAqi(s));
   const base = avg((d) => d.baseline, baselineAqi(s));
   return {
@@ -647,7 +649,7 @@ function sample(s: GameState) {
   const a = agg(s);
   const e = emissions(s, false, a);
   s.history.push({
-    tick: s.tick, day: dayOf(s), aqi: actualAqi(s), official: officialAqi(s, a), baseline: baselineAqi(s),
+    tick: s.tick, week: weekOf(s), aqi: actualAqi(s), official: officialAqi(s, a), baseline: baselineAqi(s),
     emissions: Math.round(SOURCES.reduce((t, k) => t + e[k], 0)), trust: Math.round(s.res.trust), credibility: Math.round(s.res.credibility),
     pressure: Math.round(s.res.pressure), budget: Math.round(s.res.budget),
   });
@@ -658,28 +660,28 @@ function sample(s: GameState) {
 export function step(s: GameState, opts: { offline?: boolean } = {}) {
   if (s.ended && !s.sandbox) return;
   const a = agg(s);
-  const perTick = 1 / TICKS_PER_DAY;
+  const perTick = 1 / TICKS_PER_WEEK;
   const offF = 1;
 
   // economy
-  const net = incomePerDay(s, a) - maintenancePerDay(s, a);
+  const net = incomePerWeek(s, a) - maintenancePerWeek(s, a);
   s.res.budget = Math.max(ECONOMY.debtFloor, s.res.budget + net * perTick * offF);
-  s.res.rp += researchPerDay(s, a) * perTick * offF;
-  s.res.capital += capitalPerDay(s, a) * perTick * offF;
+  s.res.rp += researchPerWeek(s, a) * perTick * offF;
+  s.res.capital += capitalPerWeek(s, a) * perTick * offF;
 
   // social dynamics
   const actual = actualAqi(s);
   const official = officialAqi(s, a);
   const perceived = official * PRESSURE.officialWeight + actual * (1 - PRESSURE.officialWeight);
-  let dPressure = (perceived - PRESSURE.neutralAqi) / PRESSURE.scale + a.pressurePerDay;
-  let dTrust = -(actual - TRUST.neutralAqi) / TRUST.scale + a.trustPerDay;
+  let dPressure = (perceived - PRESSURE.neutralAqi) / PRESSURE.scale + a.pressurePerWeek;
+  let dTrust = -(actual - TRUST.neutralAqi) / TRUST.scale + a.trustPerWeek;
   if (s.res.budget < 0) {
-    dTrust += ECONOMY.debtTrustPerDay;
-    dPressure += ECONOMY.debtPressurePerDay;
+    dTrust += ECONOMY.debtTrustPerWeek;
+    dPressure += ECONOMY.debtPressurePerWeek;
   }
   if (s.res.credibility < CREDIBILITY.challengedBelow) {
-    dTrust += CREDIBILITY.challengedTrustPerDay;
-    dPressure += CREDIBILITY.challengedPressurePerDay;
+    dTrust += CREDIBILITY.challengedTrustPerWeek;
+    dPressure += CREDIBILITY.challengedPressurePerWeek;
   }
   if (opts.offline) {
     dTrust = Math.max(-1, dTrust);
@@ -687,7 +689,7 @@ export function step(s: GameState, opts: { offline?: boolean } = {}) {
   }
   s.res.pressure = clamp(s.res.pressure + dPressure * perTick, 0, 100);
   s.res.trust = clamp(s.res.trust + dTrust * perTick, 0, 100);
-  s.participation = clamp(s.participation + a.participationPerDay * perTick, 0, 100);
+  s.participation = clamp(s.participation + a.participationPerWeek * perTick, 0, 100);
 
   // atmosphere
   const target = steadyConc(s, false, a);
@@ -702,7 +704,7 @@ export function step(s: GameState, opts: { offline?: boolean } = {}) {
   const gain = Math.max(0, baselineAqi(s) - newAqi) * ECONOMY.cacPerAqiPointDay * perTick;
   s.res.cac += gain;
   s.stats.cacEarned += gain;
-  s.stats.aqiReductionDays += (baselineAqi(s) - newAqi) * perTick;
+  s.stats.aqiReductionWeeks += (baselineAqi(s) - newAqi) * perTick;
 
   s.tick += 1;
 
@@ -733,20 +735,20 @@ export function step(s: GameState, opts: { offline?: boolean } = {}) {
   }
 
   if (s.tick % 10 === 0) sample(s);
-  if (s.tick % TICKS_PER_DAY === 0) endOfDay(s, opts.offline ?? false);
+  if (s.tick % TICKS_PER_WEEK === 0) endOfWeek(s, opts.offline ?? false);
   else if (s.tick % 5 === 0) {
     evaluateObjectives(s, false);
     checkAchievements(s);
   }
 }
 
-function endOfDay(s: GameState, offline: boolean) {
-  const prevDay = dayOf(s) - 1;
+function endOfWeek(s: GameState, offline: boolean) {
+  const prevWeek = weekOf(s) - 1;
   evaluateObjectives(s, true);
-  s.daily.push({ day: prevDay, aqi: actualAqi(s), official: officialAqi(s), baseline: baselineAqi(s), trust: Math.round(s.res.trust), credibility: Math.round(s.res.credibility) });
-  if (prevDay % DAYS_PER_WEEK === 0 && !s.sandbox) closeWeek(s);
+  s.weekly.push({ week: prevWeek, aqi: actualAqi(s), official: officialAqi(s), baseline: baselineAqi(s), trust: Math.round(s.res.trust), credibility: Math.round(s.res.credibility) });
+  if (prevWeek % WEEKS_PER_PHASE === 0 && !s.sandbox) closePhase(s);
 
-  if (prevDay >= CAMPAIGN_DAYS && !s.ended && !s.sandbox) {
+  if (prevWeek >= CAMPAIGN_WEEKS && !s.ended && !s.sandbox) {
     s.ended = evaluateEnding(endingInput(s));
     addNews(s, 'breaking', 'Commissioner’s Term Ends; Final Report Submitted (Only 3 Pages)');
     return;
@@ -756,8 +758,8 @@ function endOfDay(s: GameState, offline: boolean) {
   s.windFactor = POLLUTION.windMin + nextRandom(s) * (POLLUTION.windMax - POLLUTION.windMin);
 
   // credibility & exposure
-  const usedOpticsToday = s.lastOpticsDay === prevDay;
-  if (!usedOpticsToday) s.res.credibility = clamp(s.res.credibility + CREDIBILITY.recoveryPerDay, 0, 100);
+  const usedOpticsToday = s.lastOpticsWeek === prevWeek;
+  if (!usedOpticsToday) s.res.credibility = clamp(s.res.credibility + CREDIBILITY.recoveryPerWeek, 0, 100);
   const exposeChance = s.exposureRisk * (1 - s.res.credibility / 100) * 1.5;
   if (nextRandom(s) < exposeChance && !s.events.some((e) => e.defId === 'journalist')) {
     s.stats.exposures += 1;
@@ -768,48 +770,48 @@ function endOfDay(s: GameState, offline: boolean) {
   s.exposureRisk *= 1 - CREDIBILITY.exposureDecay;
 
   // pressure maxed tracking
-  s.pressureMaxedDays = s.res.pressure >= 99 ? s.pressureMaxedDays + 1 : 0;
+  s.pressureMaxedWeeks = s.res.pressure >= 99 ? s.pressureMaxedWeeks + 1 : 0;
 
   // stage 2 auto unlock
-  if (dayOf(s) >= STAGE2_AUTO_DAY && s.stage < 2) unlockStage2(s, true);
+  if (weekOf(s) >= STAGE2_AUTO_WEEK && s.stage < 2) unlockStage2(s, true);
 
   // daily news
   const aqi = actualAqi(s);
   addNews(s, aqi > 300 ? 'citizen' : 'viral', aqi > 300 ? templ(s, 'daily_bad') : aqi > 180 ? templ(s, 'daily_mid') : templ(s, 'daily_good'));
   if (nextRandom(s) < 0.4) addNews(s, 'citizen', templ(s, 'citizen'));
-  const se = seasonOf(dayOf(s));
-  if (se.fromDay === dayOf(s) && dayOf(s) > 1) addNews(s, 'alert', `Season change: ${se.name}`, se.blurb);
+  const se = seasonOf(weekOf(s));
+  if (se.fromWeek === weekOf(s) && weekOf(s) > 1) addNews(s, 'alert', `Season change: ${se.name}`, se.blurb);
 
-  rollDailyObjectives(s);
+  rollWeeklyObjectives(s);
   if (!offline) rollEvents(s);
   checkProgress(s);
 }
 
 /* -------------------------------------------------------------- weeks */
 
-export const weekOf = (s: GameState) => Math.min(CAMPAIGN_DAYS / DAYS_PER_WEEK, Math.ceil(dayOf(s) / DAYS_PER_WEEK));
-export const dayOfWeek = (s: GameState) => ((dayOf(s) - 1) % DAYS_PER_WEEK) + 1;
+export const phaseOf = (s: GameState) => Math.min(CAMPAIGN_WEEKS / WEEKS_PER_PHASE, Math.ceil(weekOf(s) / WEEKS_PER_PHASE));
+export const weekInPhase = (s: GameState) => ((weekOf(s) - 1) % WEEKS_PER_PHASE) + 1;
 
-export function weekSnap(s: GameState): WeekSnap {
+export function phaseSnap(s: GameState): PhaseSnap {
   return {
-    week: Math.ceil(dayOf(s) / DAYS_PER_WEEK), day: dayOf(s), budget: Math.round(s.res.budget), aqi: actualAqi(s), baseline: baselineAqi(s),
+    phase: Math.ceil(weekOf(s) / WEEKS_PER_PHASE), week: weekOf(s), budget: Math.round(s.res.budget), aqi: actualAqi(s), baseline: baselineAqi(s),
     trust: Math.round(s.res.trust), emissions: emissions(s), eventsHandled: s.stats.eventsHandled, objectivesDone: s.stats.objectivesDone, newsSeq: s.newsSeq,
   };
 }
 
 /** Called at the end of day 7, 14, 21, 28: archive a report and start a new snapshot. */
-function closeWeek(s: GameState) {
-  const start = s.weekStart ?? weekSnap(s);
-  const end = { ...weekSnap(s), week: start.week };
+function closePhase(s: GameState) {
+  const start = s.phaseStart ?? phaseSnap(s);
+  const end = { ...phaseSnap(s), phase: start.phase };
   const fresh = s.news.filter((n) => n.id > start.newsSeq);
   const headlines = fresh.filter((n) => n.kind === 'satire' || n.kind === 'citizen' || n.kind === 'viral').slice(0, 3).map((n) => n.headline);
   const consequences = fresh
     .filter((n) => n.kind === 'investigation' || n.body?.startsWith('No decision') || /Report|Victory|EXPOSED/i.test(n.headline))
     .slice(0, 4)
     .map((n) => (n.body?.startsWith('No decision') ? `No decision — ${n.headline.split(':')[0]}` : n.headline));
-  s.weekReports.push({ week: start.week, start, end, headlines, consequences });
+  s.phaseReports.push({ phase: start.phase, start, end, headlines, consequences });
   s.reportPending = true;
-  s.weekStart = weekSnap(s);
+  s.phaseStart = phaseSnap(s);
 }
 
 /** Advance n ticks, returning a new state object (the input is not mutated). */

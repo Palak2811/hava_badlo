@@ -57,8 +57,8 @@ export function LineChart({ data, series, max }: { data: Sample[]; series: { key
         {series.map((s) => (
           <polyline key={String(s.key)} fill="none" stroke={s.color} strokeWidth="2.2" strokeDasharray={s.dash ? '5 4' : undefined} points={pts.map((d, i) => `${x(i)},${y(d[s.key] as number)}`).join(' ')} />
         ))}
-        <text x={P} y={H - 4} className="axis">Day {pts[0].day}</text>
-        <text x={W - 8} y={H - 4} textAnchor="end" className="axis">Day {pts[pts.length - 1].day}</text>
+        <text x={P} y={H - 4} className="axis">Week {pts[0].week}</text>
+        <text x={W - 8} y={H - 4} textAnchor="end" className="axis">Week {pts[pts.length - 1].week}</text>
       </svg>
       <div className="legend">
         {series.map((s) => <span key={String(s.key)}><i style={{ background: s.color }} />{s.label}</span>)}

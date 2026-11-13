@@ -32,9 +32,9 @@ export interface EventDef {
   source: Source | 'none';
   description: string;
   /** If set, the event is forced on this day (once). */
-  scriptedDay?: number;
+  scriptedWeek?: number;
   once?: boolean;
-  cooldownDays: number;
+  cooldownWeeks: number;
   condition: (c: EventCtx) => boolean;
   weight: (c: EventCtx) => number;
   choices: ChoiceDef[];
@@ -57,9 +57,9 @@ export const EVENTS: EventDef[] = [
     source: 'agriculture',
     description:
       'Harvest is done and farmers have barely two weeks to clear paddy stubble before sowing wheat. Machines are expensive, labour is scarce, and a matchstick costs one rupee. Satellite images show hundreds of fires upwind.',
-    scriptedDay: 6,
+    scriptedWeek: 16,
     once: true,
-    cooldownDays: 99,
+    cooldownWeeks: 99,
     condition: (c) => c.season === 'postmonsoon',
     weight: () => 0,
     choices: [
@@ -78,9 +78,9 @@ export const EVENTS: EventDef[] = [
     source: 'other',
     description:
       'The festival season is here. Firecracker sales are increasing, and pollution-control authorities are preparing for a difficult week. Every uncle has a "green cracker" that is suspiciously loud.',
-    scriptedDay: 12,
+    scriptedWeek: 20,
     once: true,
-    cooldownDays: 99,
+    cooldownWeeks: 99,
     condition: () => true,
     weight: () => 0,
     choices: [
@@ -99,9 +99,9 @@ export const EVENTS: EventDef[] = [
     source: 'other',
     description:
       'A temperature inversion has put a lid on the city. Wind speed: zero. Visibility: one cricket pitch. Flights are diverted and schools are asking whether to close.',
-    scriptedDay: 17,
+    scriptedWeek: 29,
     once: true,
-    cooldownDays: 99,
+    cooldownWeeks: 99,
     condition: (c) => c.season === 'winter',
     weight: () => 0,
     choices: [
@@ -119,7 +119,7 @@ export const EVENTS: EventDef[] = [
     severity: 2,
     source: 'dust',
     description: 'Four flyovers, two malls and a “world-class” bus stand are being built simultaneously. Nobody has covered the sand.',
-    cooldownDays: 6,
+    cooldownWeeks: 6,
     condition: () => true,
     weight: (c) => (c.season === 'winter' ? 1.3 : 1),
     choices: [
@@ -136,7 +136,7 @@ export const EVENTS: EventDef[] = [
     severity: 1,
     source: 'transport',
     description: 'A broken signal at a major junction has created a 9 km jam. Engines idle. Horns compose a symphony.',
-    cooldownDays: 3,
+    cooldownWeeks: 3,
     condition: () => true,
     weight: () => 1.2,
     choices: [
@@ -153,7 +153,7 @@ export const EVENTS: EventDef[] = [
     severity: 2,
     source: 'industry',
     description: 'A large unit in the industrial area is caught burning banned pet-coke at night. The owner is a well-connected donor to everyone.',
-    cooldownDays: 5,
+    cooldownWeeks: 5,
     condition: (c) => c.day >= 3,
     weight: (c) => (c.s.buildings.industrial > 0 ? 1.4 : 1),
     choices: [
@@ -170,7 +170,7 @@ export const EVENTS: EventDef[] = [
     severity: 2,
     source: 'waste',
     description: 'Night guards are burning garbage to keep warm and a landfill has caught “fire on its own”. Again.',
-    cooldownDays: 4,
+    cooldownWeeks: 4,
     condition: () => true,
     weight: (c) => (c.season === 'winter' ? 1.6 : 0.8),
     choices: [
@@ -187,7 +187,7 @@ export const EVENTS: EventDef[] = [
     severity: 2,
     source: 'none',
     description: 'Parents, doctors and students are marching to your office with placards: “We want to breathe, not wait.”',
-    cooldownDays: 4,
+    cooldownWeeks: 4,
     condition: (c) => c.aqi > 250 || c.s.res.trust < 45,
     weight: (c) => 1 + Math.max(0, c.aqi - 250) / 80,
     choices: [
@@ -204,7 +204,7 @@ export const EVENTS: EventDef[] = [
     severity: 2,
     source: 'none',
     description: 'A video of a child drawing the sun in grey crayon “because that’s what it looks like” has 20 million views.',
-    cooldownDays: 5,
+    cooldownWeeks: 5,
     condition: (c) => c.aqi > 200,
     weight: () => 1,
     choices: [
@@ -221,7 +221,7 @@ export const EVENTS: EventDef[] = [
     severity: 2,
     source: 'none',
     description: 'Hon’ble Minister Shri Pawan Kumar Dhuanwala is arriving in 40 minutes with 14 cameras and 3 garlands.',
-    cooldownDays: 6,
+    cooldownWeeks: 6,
     condition: (c) => c.day >= 4,
     weight: (c) => 1 + c.s.res.pressure / 100,
     choices: [
@@ -238,7 +238,7 @@ export const EVENTS: EventDef[] = [
     severity: 1,
     source: 'none',
     description: 'Bollywood star Rajveer Kapoorna (fictional, unlike his abs) offers to be your Clean Air Ambassador — for a fee.',
-    cooldownDays: 8,
+    cooldownWeeks: 8,
     condition: (c) => c.day >= 3,
     weight: () => 0.8,
     choices: [
@@ -255,7 +255,7 @@ export const EVENTS: EventDef[] = [
     severity: 1,
     source: 'none',
     description: 'A western disturbance brings surprise showers. The air is washed clean — for now.',
-    cooldownDays: 5,
+    cooldownWeeks: 5,
     condition: (c) => c.season !== 'monsoon',
     weight: () => 0.7,
     choices: [
@@ -271,7 +271,7 @@ export const EVENTS: EventDef[] = [
     severity: 1,
     source: 'transport',
     description: 'A central scheme offers matching funds for electric buses — if you file the application properly and on time.',
-    cooldownDays: 10,
+    cooldownWeeks: 10,
     condition: (c) => c.day >= 4,
     weight: (c) => (c.s.buildings.bus > 0 ? 1.4 : 0.8),
     choices: [
@@ -288,7 +288,7 @@ export const EVENTS: EventDef[] = [
     severity: 3,
     source: 'none',
     description: 'A reporter from “The Daily Inhale” has been comparing your official numbers with independent sensors, RTI replies and the monitoring station’s water bill.',
-    cooldownDays: 4,
+    cooldownWeeks: 4,
     condition: (c) => c.s.res.credibility < 70 || c.s.exposureRisk > 0.2,
     weight: (c) => 0.5 + (100 - c.s.res.credibility) / 30 + c.s.exposureRisk * 3,
     choices: [
@@ -305,7 +305,7 @@ export const EVENTS: EventDef[] = [
     severity: 2,
     source: 'agriculture',
     description: 'Neighbouring states say Delhi’s pollution is Delhi’s fault. Delhi says it’s the neighbours. The wind says nothing and keeps blowing.',
-    cooldownDays: 6,
+    cooldownWeeks: 6,
     condition: (c) => c.day >= 5,
     weight: (c) => (c.season === 'postmonsoon' ? 1.6 : 0.6),
     choices: [
@@ -322,8 +322,8 @@ export const EVENTS: EventDef[] = [
     severity: 3,
     source: 'none',
     description: 'Political pressure is off the charts. The Ministry demands to know why it shouldn’t cut your budget.',
-    cooldownDays: 5,
-    condition: (c) => c.s.pressureMaxedDays >= 2,
+    cooldownWeeks: 5,
+    condition: (c) => c.s.pressureMaxedWeeks >= 2,
     weight: () => 4,
     choices: [
       { label: 'Submit a frank progress report', desc: 'Show what is working and what needs time.', dynamic: (c) => (c.s.res.credibility >= 55 ? { deltas: { pressure: -25, capital: 2 }, text: 'The Ministry is satisfied. Pressure eases.' } : { deltas: { pressure: -10, budget: -4000 }, text: 'Your report contradicts your press releases. Budget is trimmed.' }), result: '' },

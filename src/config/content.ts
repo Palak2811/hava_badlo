@@ -30,15 +30,15 @@ export interface ObjectiveTemplate {
   target: (day: number) => number;
   reward: (day: number) => Deltas;
   /** if true, evaluate as absolute threshold (value <= target), only at end of day */
-  belowAtDayEnd?: boolean;
+  belowAtWeekEnd?: boolean;
 }
 
 export const OBJECTIVE_TEMPLATES: ObjectiveTemplate[] = [
-  { id: 'build', label: (t) => `Buy or upgrade ${t} building${t > 1 ? 's' : ''}`, metric: (s) => s.stats.buildingsBought + s.stats.upgradesBought, target: (d) => (d < 6 ? 1 : 2), reward: (d) => ({ budget: 800 + d * 60 }) },
+  { id: 'build', label: (t) => `Buy or upgrade ${t} building${t > 1 ? 's' : ''}`, metric: (s) => s.stats.buildingsBought + s.stats.upgradesBought, target: (d) => (d < 14 ? 1 : 2), reward: (d) => ({ budget: 800 + d * 40 }) },
   { id: 'research', label: () => 'Complete a research project', metric: (s) => s.research.length, target: () => 1, reward: () => ({ rp: 20 }) },
-  { id: 'events', label: (t) => `Handle ${t} event${t > 1 ? 's' : ''}`, metric: (s) => s.stats.eventsHandled, target: (d) => (d < 10 ? 1 : 2), reward: (d) => ({ capital: 2 + Math.floor(d / 10) }) },
-  { id: 'cac', label: (t) => `Earn ${t} Clean Air Credits`, metric: (s) => s.stats.cacEarned, target: (d) => Math.max(2, Math.round(d / 3)), reward: () => ({ trust: 2, budget: 600 }) },
-  { id: 'aqi', label: (t) => `End the day with actual AQI ≤ ${t}`, metric: () => 0, target: (d) => (d < 6 ? 240 : d < 15 ? 320 : 360), reward: () => ({ budget: 1500, trust: 2 }), belowAtDayEnd: true },
+  { id: 'events', label: (t) => `Handle ${t} event${t > 1 ? 's' : ''}`, metric: (s) => s.stats.eventsHandled, target: (d) => (d < 20 ? 1 : 2), reward: (d) => ({ capital: 2 + Math.floor(d / 15) }) },
+  { id: 'cac', label: (t) => `Earn ${t} Clean Air Credits`, metric: (s) => s.stats.cacEarned, target: (d) => Math.max(2, Math.round(d / 5)), reward: () => ({ trust: 2, budget: 600 }) },
+  { id: 'aqi', label: (t) => `End the week with actual AQI ≤ ${t}`, metric: () => 0, target: (d) => (d < 14 ? 240 : d < 27 ? 330 : d < 40 ? 380 : 260), reward: () => ({ budget: 1500, trust: 2 }), belowAtWeekEnd: true },
 ];
 
 export interface StageObjective {
@@ -52,7 +52,7 @@ export const STAGE_OBJECTIVES: StageObjective[] = [
   { id: 's1_build3', stage: 1, label: 'Own 3 different facilities', check: (s) => Object.values(s.buildings).filter((l) => l > 0).length >= 3 },
   { id: 's1_research2', stage: 1, label: 'Complete 2 research projects', check: (s) => s.research.length >= 2 },
   { id: 's1_events3', stage: 1, label: 'Handle 3 events', check: (s) => s.stats.eventsHandled >= 3 },
-  { id: 's1_day5', stage: 1, label: 'Survive until Day 5', check: (s) => Math.floor(s.tick / 60) + 1 >= 5 },
+  { id: 's1_week5', stage: 1, label: 'Survive until week 5', check: (s) => Math.floor(s.tick / 60) + 1 >= 5 },
   { id: 's2_reduce', stage: 2, label: 'Cut actual AQI 20% below baseline', check: (_s, r) => r >= 20 },
   { id: 's2_build6', stage: 2, label: 'Own 6 different facilities', check: (s) => Object.values(s.buildings).filter((l) => l > 0).length >= 6 },
   { id: 's2_parali', stage: 2, label: 'Build the Parali Management Cell', check: (s) => s.buildings.parali > 0 },
@@ -157,35 +157,53 @@ export const LOADING_LINES = [
   'Negotiating with neighbouring states…',
 ];
 
-export const TUTORIAL_STEPS = [
-  { title: 'Welcome, Commissioner!', icon: '🎖️', text: 'You run the brand-new Department of Clean Air. Your mission: bring Delhi’s AQI below 100 in 4 weeks. Your resources: almost nothing. Good luck.' },
-  { title: 'Reading the air', icon: '🌫️', text: 'The top bar shows the ACTUAL AQI measured by independent sensors — lower is better. Seasons matter: parali smoke drifts in during Week 1, the winter inversion arrives in Week 3.' },
-  { title: 'Earning money', icon: '💰', text: 'The government pays you an allocation every day — more when public trust is high. Buildings cost maintenance, so watch your net income.' },
-  { title: 'Building the city', icon: '🏗️', text: 'Tap any dashed plot on the map to build a facility. Tap a facility to inspect or upgrade it. Each one attacks a specific pollution source.' },
-  { title: 'Research', icon: '🔬', text: 'The Monitoring Centre generates Research Points. Spend them in the tech tree: real pollution control, public awareness, or… political survival.' },
-  { title: 'Events', icon: '📰', text: 'Things happen: Diwali, protests, ministers. Each event has choices with real trade-offs. Ignore them and the worst option is picked for you.' },
-  { title: 'Actual vs Official', icon: '🎭', text: 'The Department of Optics can make the OFFICIAL AQI look great without changing the air. It works… until a journalist notices. Your ending depends on what you really did.' },
-];
 
-export const WEEK_BRIEFS = [
+export const PHASE_BRIEFS = [
   {
-    title: 'Welcome to Delhi',
-    challenge: 'Set up your first facilities before the parali smoke arrives.',
+    title: 'Establishing Credibility',
+    weeks: 'Weeks 1–13',
+    challenge: 'Learn the city, build basic infrastructure and find out where the smoke actually comes from.',
     text: 'Congratulations, Commissioner! Delhi has a small problem. Actually, quite a large one. The air is not particularly breathable, your office has one chair, and the Ministry would like results by Tuesday.',
   },
   {
-    title: 'The smoke season',
-    challenge: 'Stubble burning upwind and Diwali in the city. Protect the air without losing the people.',
-    text: 'Satellites show hundreds of farm fires to the north-west. Firecracker shops have opened. Every uncle has a “green cracker” that is suspiciously loud. Brace yourself.',
+    title: 'Rapid Development',
+    weeks: 'Weeks 14–26',
+    challenge: 'The city is growing and so are the proposals. Stubble smoke and Diwali arrive this quarter.',
+    text: 'Builders want permits, industrialists want waivers, and farmers upwind have two weeks to clear their fields. Every file on your desk is marked URGENT. Some of them even are.',
   },
   {
-    title: 'Winter is coming (it’s here)',
-    challenge: 'The inversion traps everything near the ground. Real infrastructure matters now.',
+    title: 'The Great Delhi Smog',
+    weeks: 'Weeks 27–39',
+    challenge: 'Winter inversion traps everything near the ground. Real infrastructure matters now.',
     text: 'Cold, still air has put a lid on the city. Flights are diverted, schools are asking questions, and a minister has discovered the word “unprecedented”.',
   },
   {
-    title: 'The final stretch',
-    challenge: 'Your term ends this week. What will the record say — the air, or the press releases?',
-    text: 'The Ministry is drafting your evaluation. Journalists are drafting theirs. The air, as usual, is not drafting anything; it is simply sitting there.',
+    title: 'Election Countdown',
+    weeks: 'Weeks 40–52',
+    challenge: 'Voters are watching. What will they remember — the air, the economy, or the press releases?',
+    text: 'The smog lifts with the spring, and so does media attention. Every decision you made this year is about to be discussed loudly on television.',
   },
 ];
+
+export const SECRETARY = { name: 'Pinky Sharma', role: 'Your Secretary' };
+
+export type TutorialGate = 'next' | 'pan' | 'zoom' | 'inspect' | 'build-monitor';
+export interface TutorialStep { id: string; text: string; target: string | null; gate: TutorialGate; focus?: 'monitor' }
+
+/** Guided first steps. `target` is a CSS selector to spotlight; gates advance on real player actions. */
+export const TUTORIAL: TutorialStep[] = [
+  { id: 'hello', target: null, gate: 'next', text: 'Namaste, Commissioner! I’m Pinky, your Secretary. I keep the files, the tea and — occasionally — the Commissioner out of trouble. Let me show you around.' },
+  { id: 'pan', target: null, gate: 'pan', text: 'This is our Delhi — twelve neighbourhoods, half a million problems. Drag the map to look around.' },
+  { id: 'zoom', target: '.zoom-ctrl', gate: 'zoom', text: 'Scroll your mouse wheel, pinch, or use these buttons to zoom in and out.' },
+  { id: 'inspect', target: null, gate: 'inspect', text: 'Tap any building, road or open patch of land to inspect it. Every neighbourhood has its own people, jobs and problems.' },
+  { id: 'build', target: null, gate: 'build-monitor', focus: 'monitor', text: 'See the dashed plot in Connaught Place? That’s ours. Tap it and build an AQI Monitoring Centre — we can’t fix what we can’t measure.' },
+  { id: 'money', target: '.stat-money', gate: 'next', text: 'This is the treasury. Money comes in every week from taxes and the Centre; every facility costs upkeep. Watch the weekly figure.' },
+  { id: 'aqi', target: '.stat-aqi', gate: 'next', text: 'And this is the city’s ACTUAL air quality — from independent sensors, not our press office. Lower is better.' },
+  { id: 'objectives', target: '.objectives-widget', gate: 'next', text: 'Each week brings objectives. Think of them as suggestions from people who outrank you.' },
+  { id: 'time', target: '.hud-time', gate: 'next', text: 'The clock is ticking — 52 weeks to the election. Pause whenever you need to think, speed up when you’re confident. Chalo, let’s begin!' },
+];
+
+export const ROAD_NAMES: { h: Record<number, string>; v: Record<number, string> } = {
+  h: { 9: 'Outer Ring Road', 20: 'Ring Road', 31: 'Mathura Road' },
+  v: { 12: 'Pusa Road', 28: 'Janpath', 44: 'Vikas Marg' },
+};

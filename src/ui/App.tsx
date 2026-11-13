@@ -1,14 +1,16 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { LOADING_LINES } from '../config/content';
-import { weekOf } from '../engine/core';
+import { phaseOf } from '../engine/core';
 import { useGame, type Tab } from '../state/store';
 import { Hud } from './Hud';
-import { ContextPanel, EventChip } from './MapOverlay';
+import { ContextPanel, EventChip, InspectPanel, ObjectivesWidget, ZoomControls } from './MapOverlay';
+import { Intro } from './Intro';
+import { Tutorial } from './Tutorial';
 import { Icon, type IconName } from './icons';
 import ResearchScreen from './screens/ResearchTab';
 import NewsScreen from './screens/NewsTab';
 import AdminScreen from './screens/AdminTab';
-import { BriefingModal, ConfirmModal, DecisionModal, EndingModal, OfflineModal, ReportModal, SettingsModal, TutorialModal } from './components/Modals';
+import { BriefingModal, ConfirmModal, DecisionModal, EndingModal, OfflineModal, ReportModal, SettingsModal } from './components/Modals';
 import { Confetti, Toasts } from './components/Feedback';
 
 const CityView = lazy(() => import('../city/CityView'));
@@ -23,9 +25,9 @@ const NAV: { id: Tab; label: string; icon: IconName }[] = [
 /** The simulation only runs while nothing important is waiting on the player. */
 function shouldPause() {
   const { game: g } = useGame.getState();
-  if (!g.tutorialDone || g.reportPending) return true;
+  if (!g.introDone || !g.tutorialDone || g.reportPending) return true;
   if (g.ended && !g.sandbox) return true;
-  if (!g.sandbox && g.briefingSeen < weekOf(g)) return true;
+  if (!g.sandbox && g.briefingSeen < phaseOf(g)) return true;
   return false;
 }
 
@@ -138,6 +140,9 @@ export default function App() {
       <Hud />
       <EventChip />
       <ContextPanel />
+      <InspectPanel />
+      <ZoomControls />
+      <ObjectivesWidget />
       {tab !== 'city' && <div className="scrim" onClick={() => setTab('city')} />}
       {tab !== 'city' && <Drawer tab={tab} />}
       <nav className="nav" aria-label="Main">
@@ -155,10 +160,11 @@ export default function App() {
       <ConfirmModal />
       <SettingsModal />
       <OfflineModal />
-      <TutorialModal />
       <ReportModal />
       <EndingModal />
       <BriefingModal />
+      <Tutorial />
+      <Intro />
     </div>
   );
 }

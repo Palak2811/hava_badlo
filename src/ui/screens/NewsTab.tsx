@@ -43,7 +43,7 @@ export default function NewsScreen() {
 
       {lead && (
         <article className="lead">
-          <small>Delhi Daily · Day {lead.day}</small>
+          <small>Delhi Daily · Week {lead.week}</small>
           <h2>{lead.headline}</h2>
           {lead.body && <p>{lead.body}</p>}
         </article>
@@ -57,7 +57,7 @@ export default function NewsScreen() {
         {items.length === 0 && <p className="empty">Nothing here yet. The press is waiting.</p>}
         {items.map((n) => (
           <article key={n.id} className={`story k-${n.kind}`}>
-            <small>Day {n.day} · {KINDS.find((x) => x.k === n.kind)?.label ?? (n.kind === 'viral' ? 'Viral' : 'Update')}</small>
+            <small>Week {n.week} · {KINDS.find((x) => x.k === n.kind)?.label ?? (n.kind === 'viral' ? 'Viral' : 'Update')}</small>
             <h4>{n.headline}</h4>
             {n.body && <p>{n.body}</p>}
           </article>
@@ -69,7 +69,7 @@ export default function NewsScreen() {
           <h4 className="label">Your decisions</h4>
           <ul className="log">
             {g.eventHistory.slice(-8).reverse().map((h, i) => (
-              <li key={i}><small>Day {h.day}</small> {EVENT_MAP[h.defId]?.title} — <i>{EVENT_MAP[h.defId]?.choices[h.choice]?.label}</i></li>
+              <li key={i}><small>Week {h.week}</small> {EVENT_MAP[h.defId]?.title} — <i>{EVENT_MAP[h.defId]?.choices[h.choice]?.label}</i></li>
             ))}
           </ul>
         </section>

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { BUILDING_MAP, CAMPAIGN_DAYS, ECONOMY, OPTICS, RESEARCH, SAVE_KEY, START, TICKS_PER_DAY } from '../src/config/balance';
+import { BUILDING_MAP, CAMPAIGN_WEEKS, ECONOMY, OPTICS, RESEARCH, SAVE_KEY, START, TICKS_PER_WEEK } from '../src/config/balance';
 import { EVENTS, EVENT_MAP } from '../src/config/events';
 import { ACHIEVEMENTS } from '../src/config/content';
 import {
-  actualAqi, advance, agg, baselineAqi, buyBuilding, claimGrant, concToAqi, dayOf, doResearch, emissions, endingInput,
-  evaluateEnding, incomePerDay, maintenancePerDay, newGame, officialAqi, opticsUnlocked, rates, reductionPct,
+  actualAqi, advance, agg, baselineAqi, buyBuilding, claimGrant, concToAqi, weekOf, doResearch, emissions, endingInput,
+  evaluateEnding, incomePerWeek, maintenancePerWeek, newGame, officialAqi, opticsUnlocked, rates, reductionPct,
   researchStatus, resolveEvent, rollEvents, seasonOf, spawnEvent, step, steadyConc, executeOptics, type EndingInput,
 } from '../src/engine/core';
 import { applyOffline, load, save, serialize, validate, type StorageLike } from '../src/engine/save';
@@ -13,6 +13,7 @@ import { SOURCES, type GameState } from '../src/engine/types';
 const fresh = (seed = 7) => {
   const s = newGame(seed, 0);
   s.tutorialDone = true;
+  s.introDone = true;
   s.objectives = []; // isolate tests from daily-objective rewards
   return s;
 };
@@ -38,7 +39,7 @@ describe('economy', () => {
     const s = fresh();
     const b0 = s.res.budget;
     const expected = rates(s).net;
-    run(s, TICKS_PER_DAY);
+    run(s, TICKS_PER_WEEK);
     // trust drifts slightly during the day so allow a small tolerance
     expect(s.res.budget - b0).toBeGreaterThan(expected * 0.9);
     expect(s.res.budget - b0).toBeLessThan(expected * 1.1 + 2000); // objectives may pay out
@@ -47,20 +48,20 @@ describe('economy', () => {
   it('income scales with trust', () => {
     const s = fresh();
     s.res.trust = 100;
-    const hi = incomePerDay(s);
+    const hi = incomePerWeek(s);
     s.res.trust = 0;
-    const lo = incomePerDay(s);
+    const lo = incomePerWeek(s);
     expect(hi).toBeGreaterThan(lo);
-    expect(lo).toBeCloseTo(ECONOMY.baseIncomePerDay * ECONOMY.trustIncomeBase);
+    expect(lo).toBeCloseTo(ECONOMY.baseIncomePerWeek * ECONOMY.trustIncomeBase);
   });
 
   it('maintenance reduces net income and budget cannot fall below the debt floor', () => {
     const s = fresh();
     s.res.trust = 0;
     for (const id of Object.keys(s.buildings) as (keyof GameState['buildings'])[]) s.buildings[id] = BUILDING_MAP[id].levels.length;
-    expect(maintenancePerDay(s)).toBeGreaterThan(incomePerDay(s));
+    expect(maintenancePerWeek(s)).toBeGreaterThan(incomePerWeek(s));
     s.res.budget = 0;
-    run(s, TICKS_PER_DAY * 20);
+    run(s, TICKS_PER_WEEK * 20);
     expect(s.res.budget).toBeGreaterThanOrEqual(ECONOMY.debtFloor);
   });
 });
@@ -127,7 +128,7 @@ describe('buildings', () => {
     const s = fresh();
     buyBuilding(s, 'monitor');
     const rp0 = s.res.rp;
-    run(s, TICKS_PER_DAY);
+    run(s, TICKS_PER_WEEK);
     expect(s.res.rp - rp0).toBeGreaterThanOrEqual(35);
   });
 });
@@ -152,8 +153,8 @@ describe('pollution simulation', () => {
   it('winter is worse than late monsoon without intervention', () => {
     const s = fresh();
     const early = steadyConc(s, true);
-    s.tick = 20 * TICKS_PER_DAY;
-    expect(seasonOf(dayOf(s)).id).toBe('winter');
+    s.tick = 30 * TICKS_PER_WEEK;
+    expect(seasonOf(weekOf(s)).id).toBe('winter');
     expect(steadyConc(s, true)).toBeGreaterThan(early);
   });
 
@@ -171,7 +172,7 @@ describe('pollution simulation', () => {
     s.res.rp = 1e5;
     s.research = RESEARCH.map((r) => r.id);
     s.stage = 2;
-    s.tick = 10 * TICKS_PER_DAY;
+    s.tick = 10 * TICKS_PER_WEEK;
     for (const id of Object.keys(s.buildings) as (keyof GameState['buildings'])[]) s.buildings[id] = BUILDING_MAP[id].levels.length;
     const a = agg(s);
     for (const k of SOURCES) expect(a.control[k]).toBeLessThanOrEqual(0.85);
@@ -253,7 +254,7 @@ describe('events', () => {
   it('unanswered events auto-resolve with the last option', () => {
     const s = fresh();
     spawnEvent(s, 'traffic');
-    run(s, TICKS_PER_DAY * 2);
+    run(s, TICKS_PER_WEEK * 2);
     expect(s.events.find((e) => e.defId === 'traffic')).toBeUndefined();
     const h = s.eventHistory.find((x) => x.defId === 'traffic')!;
     expect(h.choice).toBe(EVENT_MAP.traffic.choices.length - 1);
@@ -261,7 +262,7 @@ describe('events', () => {
 
   it('does not exceed the max simultaneous events and respects cooldowns', () => {
     const s = fresh();
-    s.tick = 20 * TICKS_PER_DAY;
+    s.tick = 20 * TICKS_PER_WEEK;
     for (let i = 0; i < 50; i++) rollEvents(s);
     expect(s.events.length).toBeLessThanOrEqual(3);
     const ids = s.events.map((e) => e.defId);
@@ -270,7 +271,7 @@ describe('events', () => {
 
   it('scripted seasonal events fire on schedule', () => {
     const s = fresh();
-    run(s, 6 * TICKS_PER_DAY + 1);
+    run(s, 16 * TICKS_PER_WEEK + 1);
     const seen = s.events.some((e) => e.defId === 'parali') || s.eventHistory.some((e) => e.defId === 'parali');
     expect(seen).toBe(true);
   });
@@ -309,7 +310,7 @@ describe('optics / satire', () => {
     expect(executeOptics(s, 'committee').ok).toBe(true);
     expect(s.res.pressure).toBe(p0 - 12);
     expect(s.stats.reports).toBe(0);
-    run(s, 3 * TICKS_PER_DAY + 1);
+    run(s, 3 * TICKS_PER_WEEK + 1);
     expect(s.stats.reports).toBe(1);
   });
 
@@ -327,12 +328,12 @@ describe('optics / satire', () => {
     const s = fresh();
     s.res = { ...s.res, budget: 1e5, capital: 100 };
     s.research.push('c_committee', 'c_press', 'c_pr', 'c_negotiate', 'c_media', 'c_reports', 'c_emergency');
-    s.tick = 16 * TICKS_PER_DAY;
+    s.tick = 16 * TICKS_PER_WEEK;
     s.conc = 300;
     s.baselineConc = 300;
     expect(executeOptics(s, 'victory').ok).toBe(true);
     const trustAfterBoost = s.res.trust;
-    run(s, 2 * TICKS_PER_DAY + 1);
+    run(s, 2 * TICKS_PER_WEEK + 1);
     expect(s.res.trust).toBeLessThan(trustAfterBoost - 15);
     expect(s.res.credibility).toBeLessThanOrEqual(75);
   });
@@ -386,6 +387,16 @@ describe('save / load', () => {
     expect(r.state.res.budget).toBeCloseTo(s.res.budget);
   });
 
+  it('replaces saves from an older clock version with a fresh term', () => {
+    const st = new MemStorage();
+    const f = JSON.parse(serialize(fresh()));
+    f.version = 1;
+    st.setItem(SAVE_KEY, JSON.stringify(f));
+    const r = load(st);
+    expect(r.status).toBe('outdated');
+    expect(r.state.tick).toBe(0);
+  });
+
   it('starts fresh when nothing is saved', () => {
     expect(load(new MemStorage()).status).toBe('new');
   });
@@ -435,10 +446,10 @@ describe('offline progression', () => {
     const { state, summary } = applyOffline(s, 100 * 3600 * 1000);
     expect(summary!.seconds).toBe(8 * 3600);
     expect(state.ended).toBeNull();
-    s.tick = (CAMPAIGN_DAYS - 1) * TICKS_PER_DAY + 50;
+    s.tick = (CAMPAIGN_WEEKS - 1) * TICKS_PER_WEEK + 50;
     const late = applyOffline(s, 100 * 3600 * 1000).state;
     expect(late.ended).toBeNull();
-    expect(late.tick).toBeLessThan(CAMPAIGN_DAYS * TICKS_PER_DAY);
+    expect(late.tick).toBeLessThan(CAMPAIGN_WEEKS * TICKS_PER_WEEK);
   });
 
   it('handles negative net income offline without going below the debt floor', () => {
@@ -480,7 +491,7 @@ describe('endings', () => {
 
   it('the campaign ends after the last day with an ending', () => {
     const s = fresh();
-    run(s, CAMPAIGN_DAYS * TICKS_PER_DAY + 1);
+    run(s, CAMPAIGN_WEEKS * TICKS_PER_WEEK + 1);
     expect(s.ended).not.toBeNull();
     const t = s.tick;
     run(s, 100);
@@ -490,7 +501,7 @@ describe('endings', () => {
 
   it('sandbox continues after the ending', () => {
     const s = fresh();
-    run(s, CAMPAIGN_DAYS * TICKS_PER_DAY + 1);
+    run(s, CAMPAIGN_WEEKS * TICKS_PER_WEEK + 1);
     s.sandbox = true;
     const t = s.tick;
     run(s, 10);
@@ -507,16 +518,16 @@ describe('progression & achievements', () => {
     expect(s.res.budget).toBe(b - 2000 + 1000);
   });
 
-  it('stage 2 unlocks after stage 1 objectives or by day 8', () => {
+  it('stage 2 unlocks after stage 1 objectives or by week 14', () => {
     const s = fresh();
-    run(s, 8 * TICKS_PER_DAY + 1);
+    run(s, 14 * TICKS_PER_WEEK + 1);
     expect(s.stage).toBe(2);
     expect(buyBuilding({ ...s, res: { ...s.res, budget: 1e6, capital: 100 } } as GameState, 'parali').ok).toBe(true);
   });
 
   it('daily objectives refresh each day', () => {
     const s = fresh();
-    run(s, TICKS_PER_DAY);
+    run(s, TICKS_PER_WEEK);
     expect(s.objectives.length).toBeGreaterThanOrEqual(2);
     expect(s.objectives[0].id.endsWith('_2')).toBe(true);
   });
@@ -535,20 +546,20 @@ describe('progression & achievements', () => {
 describe('weeks', () => {
   it('produces a weekly report every 7 days with start/end snapshots', () => {
     const s = fresh();
-    run(s, 7 * TICKS_PER_DAY);
-    expect(s.weekReports.length).toBe(1);
+    run(s, 13 * TICKS_PER_WEEK);
+    expect(s.phaseReports.length).toBe(1);
     expect(s.reportPending).toBe(true);
-    const r = s.weekReports[0];
-    expect(r.week).toBe(1);
-    expect(r.start.day).toBe(1);
-    expect(r.end.day).toBe(8);
-    expect(s.weekStart.week).toBe(2);
+    const r = s.phaseReports[0];
+    expect(r.phase).toBe(1);
+    expect(r.start.week).toBe(1);
+    expect(r.end.week).toBe(14);
+    expect(s.phaseStart.phase).toBe(2);
   });
 
   it('a full campaign is exactly four weeks with four reports', () => {
     const s = fresh();
-    run(s, CAMPAIGN_DAYS * TICKS_PER_DAY + 1);
-    expect(s.weekReports.map((r) => r.week)).toEqual([1, 2, 3, 4]);
+    run(s, CAMPAIGN_WEEKS * TICKS_PER_WEEK + 1);
+    expect(s.phaseReports.map((r) => r.phase)).toEqual([1, 2, 3, 4]);
     expect(s.ended).not.toBeNull();
   });
 });

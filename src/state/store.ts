@@ -3,10 +3,12 @@ import { SETTINGS_KEY } from '../config/balance';
 import { ACHIEVEMENTS } from '../config/content';
 import { EVENT_MAP } from '../config/events';
 import {
-  buyBuilding, claimGrant, weekOf, doResearch, newGame, resolveEvent, step, executeOptics, type ActionResult,
+  buyBuilding, claimGrant, phaseOf, doResearch, newGame, resolveEvent, step, executeOptics, type ActionResult,
 } from '../engine/core';
 import { applyOffline, load, reset as resetSave, save } from '../engine/save';
 import type { BuildingId, GameState, OfflineSummary, Settings } from '../engine/types';
+import type { Pick } from '../engine/map';
+import { TUTORIAL } from '../config/content';
 import { sound } from '../audio/sound';
 
 export type Tab = 'city' | 'research' | 'news' | 'admin';
@@ -28,6 +30,7 @@ interface Store {
   settings: Settings;
   tab: Tab;
   selected: BuildingId | null;
+  inspect: Pick | null;
   eventOpen: string | null;
   toasts: Toast[];
   offline: OfflineSummary | null;
@@ -38,8 +41,14 @@ interface Store {
   boot: () => void;
   setTab: (t: Tab) => void;
   select: (b: BuildingId | null) => void;
+  onPick: (p: Pick | null) => void;
+  tutorialEvent: (kind: 'pan' | 'zoom' | 'inspect') => void;
+  advanceTutorial: () => void;
+  skipTutorial: () => void;
+  replayTutorial: () => void;
+  finishIntro: () => void;
   openEvent: (uid: string | null) => void;
-  setSpeed: (sp: 0 | 1 | 2 | 4) => void;
+  setSpeed: (sp: 0 | 1 | 2 | 3) => void;
   tickReal: (ticks: number) => void;
   buy: (id: BuildingId) => void;
   research: (id: string) => void;
@@ -101,6 +110,7 @@ export const useGame = create<Store>((set, get) => {
     settings: loadSettings(),
     tab: 'city',
     selected: null,
+    inspect: null,
     eventOpen: null,
     toasts: [],
     offline: null,
@@ -121,7 +131,7 @@ export const useGame = create<Store>((set, get) => {
         game = o.state;
         offline = o.summary;
       }
-      set({ game, offline, loadNotice: res.status === 'corrupt' ? 'Your previous save was damaged and could not be loaded. A backup was kept and a new term has begun.' : null });
+      set({ game, offline, loadNotice: res.status === 'corrupt' ? 'Your previous save was damaged and could not be loaded. A backup was kept and a new term has begun.' : res.status === 'outdated' ? 'The game now runs a full 52-week term, so your 4-week prototype save was replaced with a fresh one.' : null });
       save(st, game);
       const se = get().settings;
       sound.configure({ sfx: se.sound, music: se.music, musicVolume: se.musicVolume, sfxVolume: se.sfxVolume });
@@ -130,7 +140,35 @@ export const useGame = create<Store>((set, get) => {
       sound.play('click');
       set({ tab });
     },
-    select: (selected) => set({ selected }),
+    select: (selected) => set({ selected, inspect: null }),
+    onPick: (p) => {
+      if (p?.type === 'plot') set({ selected: p.id, inspect: null });
+      else set({ inspect: p, selected: null });
+      if (p) get().tutorialEvent('inspect');
+    },
+    tutorialEvent: (kind) => {
+      const g = get().game;
+      if (g.tutorialDone || !g.introDone) return;
+      if (TUTORIAL[g.tutorialStep]?.gate === kind) get().advanceTutorial();
+    },
+    advanceTutorial: () => {
+      const g = get().game;
+      const next = g.tutorialStep + 1;
+      sound.play('notify');
+      set({ game: { ...g, tutorialStep: next, tutorialDone: next >= TUTORIAL.length } });
+      get().persist();
+    },
+    skipTutorial: () => {
+      set({ game: { ...get().game, tutorialDone: true } });
+      get().persist();
+    },
+    replayTutorial: () => {
+      set({ game: { ...get().game, tutorialDone: false, tutorialStep: 0 }, tab: 'city' });
+    },
+    finishIntro: () => {
+      set({ game: { ...get().game, introDone: true, briefingSeen: 1 } });
+      get().persist();
+    },
     openEvent: (eventOpen) => set({ eventOpen }),
     setSpeed: (sp) => {
       sound.play('click');
@@ -150,7 +188,12 @@ export const useGame = create<Store>((set, get) => {
       }
     },
     buy: (id) => {
-      mutate((s) => buyBuilding(s, id), 'buy');
+      const r = mutate((s) => buyBuilding(s, id), 'buy');
+      const g = get().game;
+      if (r.ok && !g.tutorialDone && TUTORIAL[g.tutorialStep]?.gate === 'build-monitor' && g.buildings.monitor > 0) {
+        set({ selected: null });
+        get().advanceTutorial();
+      }
     },
     research: (id) => {
       mutate((s) => doResearch(s, id), 'unlock');
@@ -173,8 +216,7 @@ export const useGame = create<Store>((set, get) => {
       const st = storage();
       if (st) resetSave(st);
       const g = newGame();
-      g.tutorialDone = true;
-      set({ game: g, tab: 'city', eventOpen: null, selected: null, offline: null });
+      set({ game: g, tab: 'city', eventOpen: null, selected: null, inspect: null, offline: null });
       get().persist();
       get().toast({ kind: 'info', title: 'A new term begins', body: 'Fresh desk, fresh smog.' });
     },
@@ -192,7 +234,7 @@ export const useGame = create<Store>((set, get) => {
     },
     dismissBriefing: () => {
       const g = get().game;
-      set({ game: { ...g, briefingSeen: weekOf(g) } });
+      set({ game: { ...g, briefingSeen: phaseOf(g) } });
       get().persist();
     },
     updateSettings: (p) => {

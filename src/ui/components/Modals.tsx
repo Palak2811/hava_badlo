@@ -1,9 +1,9 @@
-import { useEffect, useState, type ReactNode } from 'react';
-import { CAMPAIGN_WEEKS } from '../../config/balance';
-import { ENDINGS, TUTORIAL_STEPS, WEEK_BRIEFS } from '../../config/content';
+import { useEffect, type ReactNode } from 'react';
+import { CAMPAIGN_PHASES, CAMPAIGN_WEEKS } from '../../config/balance';
+import { ENDINGS, PHASE_BRIEFS } from '../../config/content';
 import { EVENT_MAP, type ChoiceDef } from '../../config/events';
-import { actualAqi, aqiBand, canAfford, dayOf, endingInput, weekOf } from '../../engine/core';
-import { SOURCES, type WeekReport } from '../../engine/types';
+import { actualAqi, aqiBand, canAfford, weekOf, endingInput, phaseOf } from '../../engine/core';
+import { SOURCES, type PhaseReport } from '../../engine/types';
 import { useGame } from '../../state/store';
 import { Icon } from '../icons';
 import { costText, inr, num, signed } from '../format';
@@ -113,17 +113,17 @@ export function BriefingModal() {
   const g = useGame((s) => s.game);
   const dismiss = useGame((s) => s.dismissBriefing);
   const offline = useGame((s) => s.offline);
-  const w = weekOf(g);
-  if (!g.tutorialDone || g.reportPending || offline || g.sandbox || (g.ended && !g.sandbox) || g.briefingSeen >= w) return null;
-  const brief = WEEK_BRIEFS[w - 1];
+  const w = phaseOf(g);
+  if (!g.introDone || !g.tutorialDone || g.reportPending || offline || g.sandbox || (g.ended && !g.sandbox) || g.briefingSeen >= w) return null;
+  const brief = PHASE_BRIEFS[w - 1];
   const aqi = actualAqi(g);
   return (
     <Modal className="briefing" label={`Week ${w} briefing`}>
       <div className="memo-top">
         <span>Office of the Commissioner · Clean Air Mission</span>
-        <span className="stamp">Week {w} / {CAMPAIGN_WEEKS}</span>
+        <span className="stamp">Phase {w} / {CAMPAIGN_PHASES}</span>
       </div>
-      <small className="eyebrow">Weekly briefing · Day {dayOf(g)}</small>
+      <small className="eyebrow">Quarterly briefing · {brief.weeks} · now week {weekOf(g)}</small>
       <h2>{brief.title}</h2>
       <p className="memo-text">{brief.text}</p>
       <div className="trio">
@@ -131,8 +131,8 @@ export function BriefingModal() {
         <div><small>Actual AQI</small><b style={{ color: aqiBand(aqi).color }}>{aqi}</b><em>{aqiBand(aqi).label}</em></div>
         <div><small>Public trust</small><b>{num(g.res.trust)}%</b></div>
       </div>
-      <div className="challenge"><Icon name="flame" /> <span><small>This week’s challenge</small>{brief.challenge}</span></div>
-      <button className="btn primary block" onClick={dismiss}>Begin week {w} <Icon name="arrow" /></button>
+      <div className="challenge"><Icon name="flame" /> <span><small>This quarter’s challenge</small>{brief.challenge}</span></div>
+      <button className="btn primary block" onClick={dismiss}>Begin {brief.title} <Icon name="arrow" /></button>
     </Modal>
   );
 }
@@ -141,7 +141,7 @@ export function BriefingModal() {
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
-function narrative(r: WeekReport) {
+function narrative(r: PhaseReport) {
   const dA = r.end.aqi - r.start.aqi;
   const dT = r.end.trust - r.start.trust;
   if (dA < -20 && dT >= 0) return 'A genuinely good week. Somebody in the Ministry asked what you’re doing differently, then forgot to write it down.';
@@ -155,9 +155,9 @@ function narrative(r: WeekReport) {
 export function ReportModal() {
   const g = useGame((s) => s.game);
   const dismiss = useGame((s) => s.dismissReport);
-  if (!g.reportPending || !g.weekReports.length) return null;
-  const r = g.weekReports[g.weekReports.length - 1];
-  const final = r.week >= CAMPAIGN_WEEKS;
+  if (!g.reportPending || !g.phaseReports.length) return null;
+  const r = g.phaseReports[g.phaseReports.length - 1];
+  const final = r.phase >= CAMPAIGN_PHASES;
   const max = Math.max(1, ...SOURCES.map((k) => Math.max(r.start.emissions[k], r.end.emissions[k])));
   const rows = [
     { k: 'Budget', a: inr(r.start.budget), b: inr(r.end.budget), d: r.end.budget - r.start.budget, good: r.end.budget >= r.start.budget, fmt: inr },
@@ -165,9 +165,9 @@ export function ReportModal() {
     { k: 'Public trust', a: `${r.start.trust}%`, b: `${r.end.trust}%`, d: r.end.trust - r.start.trust, good: r.end.trust >= r.start.trust, fmt: (n: number) => signed(n) },
   ];
   return (
-    <Modal className="report" label={`Week ${r.week} report`}>
-      <small className="eyebrow">End of week {r.week}</small>
-      <h2>Weekly performance report</h2>
+    <Modal className="report" label={`Phase ${r.phase} report`}>
+      <small className="eyebrow">End of phase {r.phase} · {PHASE_BRIEFS[r.phase - 1].title}</small>
+      <h2>Quarterly performance report</h2>
       <p className="memo-text">{narrative(r)}</p>
       <div className="report-rows">
         {rows.map((x) => (
@@ -212,7 +212,7 @@ export function ReportModal() {
           )}
         </div>
       </div>
-      <button className="btn primary block" onClick={dismiss}>{final ? 'See the final verdict' : `On to week ${r.week + 1}`} <Icon name="arrow" /></button>
+      <button className="btn primary block" onClick={dismiss}>{final ? 'See the final verdict' : `On to ${PHASE_BRIEFS[r.phase].title}`} <Icon name="arrow" /></button>
     </Modal>
   );
 }
@@ -252,7 +252,8 @@ export function SettingsModal() {
       <label className="setting"><span>Music volume</span><input type="range" min={0} max={1} step={0.05} value={st.musicVolume} onChange={(e) => upd({ musicVolume: +e.target.value })} /></label>
       <label className="setting"><span>Animations</span><input type="checkbox" checked={st.animations} onChange={(e) => upd({ animations: e.target.checked })} /></label>
       <div className="row-btns">
-        <button className="btn ghost" onClick={() => { close(); useGame.setState({ game: { ...useGame.getState().game, tutorialDone: false } }); }}>Replay tutorial</button>
+        <button className="btn ghost" onClick={() => { close(); useGame.getState().replayTutorial(); }}>Replay tutorial</button>
+        <button className="btn ghost" onClick={() => { close(); useGame.setState({ game: { ...useGame.getState().game, introDone: false } }); }}>Replay intro</button>
         <button className="btn danger" onClick={() => askConfirm({ title: 'Reset your term?', body: 'All progress, facilities and achievements will be permanently deleted. This cannot be undone.', onYes: () => { close(); resetGame(); } })}>Reset game</button>
       </div>
       <p className="hint">Progress saves automatically.</p>
@@ -278,28 +279,6 @@ export function OfflineModal() {
       </div>
       {o.notes.map((n) => <p key={n} className="hint">• {n}</p>)}
       <button className="btn primary block" onClick={close}>Back to work</button>
-    </Modal>
-  );
-}
-
-export function TutorialModal() {
-  const done = useGame((s) => s.game.tutorialDone);
-  const finish = useGame((s) => s.finishTutorial);
-  const [i, setI] = useState(0);
-  if (done) return null;
-  const st = TUTORIAL_STEPS[i];
-  const last = i === TUTORIAL_STEPS.length - 1;
-  return (
-    <Modal className="small tutorial" label="How to play">
-      <div className="steps">{TUTORIAL_STEPS.map((_, k) => <i key={k} className={k <= i ? 'on' : ''} />)}</div>
-      <div className="tut-art" aria-hidden>{st.icon}</div>
-      <h2>{st.title}</h2>
-      <p className="memo-text">{st.text}</p>
-      <div className="row-btns">
-        <button className="btn ghost" onClick={() => { setI(0); finish(); }}>Skip</button>
-        {i > 0 && <button className="btn ghost" onClick={() => setI(i - 1)}>Back</button>}
-        <button className="btn primary" onClick={() => (last ? (setI(0), finish()) : setI(i + 1))}>{last ? 'Take charge' : 'Next'}</button>
-      </div>
     </Modal>
   );
 }
