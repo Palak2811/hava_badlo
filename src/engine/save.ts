@@ -2,6 +2,7 @@ import { CAMPAIGN_WEEKS, OFFLINE, SAVE_KEY, SAVE_VERSION, TICKS_PER_WEEK } from 
 import { BUILDINGS } from '../config/balance';
 import { newGame, step } from './core';
 import { liveMap } from './build';
+import { assessCity, initialCity } from './city';
 import { computeMapStats } from './map';
 import type { GameState, OfflineSummary } from './types';
 
@@ -51,6 +52,9 @@ export function validate(raw: unknown): GameState | null {
   if (!merged.upgrading || typeof merged.upgrading !== 'object') merged.upgrading = {};
   // derived data is never trusted from disk
   merged.mapStats = computeMapStats(liveMap(merged));
+  const c = merged.city as unknown as Record<string, unknown> | undefined;
+  if (!c || !isNum(c.population) || (c.population as number) <= 0 || typeof c.demand !== 'object') merged.city = initialCity(merged.mapStats);
+  assessCity(merged);
   merged.version = SAVE_VERSION;
   return merged;
 }

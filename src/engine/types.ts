@@ -209,6 +209,8 @@ export interface GameState {
   mapVersion: number;
   /** Derived from the map whenever it changes; feeds the simulation. */
   mapStats: MapStats;
+  /** Residents, employment, demand and traffic (updated weekly). */
+  city: CitySim;
   phaseReports: PhaseReport[];
   reportPending: boolean;
   briefingSeen: number;
@@ -229,6 +231,8 @@ export interface Placed {
   built: boolean;
   /** relocated (modernised) factories emit less */
   modern?: boolean;
+  /** built by private developers through organic growth */
+  organic?: boolean;
 }
 
 export interface CityEdits {
@@ -253,6 +257,29 @@ export interface MapStats {
   parkingTiles: number;
   busStops: number;
   upkeep: number;
+  retailJobs: number;
+  arterialTiles: number;
+  streetTiles: number;
+  metroStations: number;
+}
+
+export interface TrafficStats {
+  trips: number;
+  ptShare: number;
+  privateTrips: number;
+  congestion: number;
+  /** multiplier on transport emissions relative to the starting city */
+  transportMult: number;
+}
+
+export interface CitySim {
+  /** actual residents (housing capacity lives in mapStats.population) */
+  population: number;
+  unemployment: number;
+  overcrowding: number;
+  demand: { res: number; com: number; ind: number };
+  traffic: TrafficStats;
+  developments: number;
 }
 
 export interface PhaseSnap {

@@ -4,6 +4,7 @@ import { canAfford, opticsCost, opticsReadyIn, opticsUnlocked, rates, reductionP
 import { useGame } from '../../state/store';
 import { LineChart } from '../components/Charts';
 import { Icon } from '../icons';
+import { CityPulse } from '../CityPulse';
 import { costText, inr, num } from '../format';
 
 function whisper(cred: number) {
@@ -27,6 +28,7 @@ export default function AdminScreen() {
 
   return (
     <div className="screen">
+      <CityPulse />
       <div className="gauges">
         <div className="gauge-tile">
           <small><Icon name="flame" size={14} /> Political pressure</small>

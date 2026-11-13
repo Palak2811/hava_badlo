@@ -6,6 +6,7 @@ import { Hud } from './Hud';
 import { ContextPanel, EventChip, InspectPanel, ObjectivesWidget, ZoomControls } from './MapOverlay';
 import { Intro } from './Intro';
 import { BuildPalette, ToolPanel } from './BuildPalette';
+import { CityPulse } from './CityPulse';
 import { Tutorial } from './Tutorial';
 import { Icon, type IconName } from './icons';
 import ResearchScreen from './screens/ResearchTab';
@@ -145,7 +146,12 @@ export default function App() {
       <ContextPanel />
       <InspectPanel />
       <ZoomControls />
-      {!buildOpen && <ObjectivesWidget />}
+      {!buildOpen && (
+        <div className="left-stack">
+          <CityPulse />
+          <ObjectivesWidget />
+        </div>
+      )}
       <BuildPalette />
       <ToolPanel />
       {tab !== 'city' && <div className="scrim" onClick={() => setTab('city')} />}

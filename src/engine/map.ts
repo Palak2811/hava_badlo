@@ -394,7 +394,7 @@ export function buildMap(edits: CityEdits, base: CityMap = CITY): CityMap {
 
 /** Aggregate numbers the simulation needs from the map. */
 export function computeMapStats(m: CityMap, upkeepOf: (b: MapBuilding) => number = () => 0): MapStats {
-  const s: MapStats = { population: 0, jobs: 0, industryLoad: 0, commercialTiles: 0, constructionSites: 0, parkTiles: 0, hospitals: 0, schools: 0, parkingTiles: 0, busStops: m.busStops.length, upkeep: 0 };
+  const s: MapStats = { population: 0, jobs: 0, industryLoad: 0, commercialTiles: 0, constructionSites: 0, parkTiles: 0, hospitals: 0, schools: 0, parkingTiles: 0, busStops: m.busStops.length, upkeep: 0, retailJobs: 0, arterialTiles: 0, streetTiles: 0, metroStations: m.metro.stations.length };
   for (const b of m.buildings) {
     if (b.removed) continue;
     if (b.progress) {
@@ -411,7 +411,8 @@ export function computeMapStats(m: CityMap, upkeepOf: (b: MapBuilding) => number
       case 'factory': s.industryLoad += area * (b.modern ? 0.5 : 1); break;
       case 'warehouse': s.industryLoad += area * 0.3; break;
       case 'construction': s.constructionSites++; break;
-      case 'shop': case 'market': case 'office': s.commercialTiles += area; break;
+      case 'shop': case 'market': s.commercialTiles += area; s.retailJobs += k.jobs * scale; break;
+      case 'office': s.commercialTiles += area; break;
       case 'park': case 'forest': s.parkTiles += area * (b.kind === 'forest' ? 2 : 1); break;
       case 'hospital': s.hospitals++; break;
       case 'school': s.schools++; break;
@@ -419,7 +420,11 @@ export function computeMapStats(m: CityMap, upkeepOf: (b: MapBuilding) => number
       case 'busstop': s.busStops++; break;
     }
   }
-  for (const t of m.tiles) if (t === 'roadwork') s.constructionSites += 0.1;
+  for (const t of m.tiles) {
+    if (t === 'roadwork') s.constructionSites += 0.1;
+    else if (t === 'arterial' || t === 'bridge') s.arterialTiles++;
+    else if (t === 'street') s.streetTiles++;
+  }
   for (let i = 0; i < m.tiles.length; i++) if (m.tiles[i] === 'park' && m.owner[i] < 0) s.parkTiles++;
   return s;
 }

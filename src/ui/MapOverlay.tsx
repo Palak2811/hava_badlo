@@ -8,6 +8,7 @@ import { PLACEABLE_MAP } from '../config/build';
 import { TICKS_PER_WEEK } from '../config/balance';
 import { getLiveMap } from '../state/store';
 import { facilityWeeks } from '../engine/core';
+import { congestionLabel } from '../engine/city';
 import { cityControls } from '../city/controls';
 import { useGame } from '../state/store';
 import { SOURCE_META } from './components/Charts';
@@ -227,7 +228,8 @@ export function InspectPanel() {
         </div>
         <p className="ctx-desc">{t === 'street' ? 'A narrow colony lane: parked cars on both sides, a cow in the middle.' : 'A main road carrying buses, trucks and most of the city’s tailpipe emissions.'}</p>
         <dl className="ctx-facts">
-          <dt>Capacity</dt><dd>{t === 'street' ? 'Low (1 lane each way)' : 'High (multi-lane)'}</dd>
+          <dt>Capacity</dt><dd>{t === 'street' ? 'Low (1 lane each way)' : t === 'roadwork' ? 'Closed for works' : 'High (multi-lane)'}</dd>
+          <dt>City traffic</dt><dd>{congestionLabel(g.city.traffic.congestion)} · {Math.round(g.city.traffic.ptShare * 100)}% of trips by public transport</dd>
           {station && (<><dt>Metro</dt><dd>{station.name} station</dd></>)}
           {stop && (<><dt>Bus stop</dt><dd>DTC & cluster bus routes</dd></>)}
         </dl>
@@ -238,6 +240,9 @@ export function InspectPanel() {
   const d = CITY.districts.find((x) => x.id === pick.id)!;
   const st = areaStats(CITY, d.id);
   const sites = CITY.buildings.filter((b) => b.district === d.id && b.progress && !b.removed).length;
+  const occupancy = g.city.population / Math.max(1, g.mapStats.population);
+  const residents = st.population * occupancy;
+  const workers = residents * 0.45;
   const top = Object.entries(st.counts).sort((a, b) => b[1] - a[1]).slice(0, 4);
   return (
     <section className="context" aria-label={d.name}>
@@ -251,12 +256,13 @@ export function InspectPanel() {
       </div>
       <p className="ctx-desc">{d.blurb}</p>
       <div className="mini-stats">
-        <div><small>Population</small><b>{fmtPeople(st.population)}</b></div>
+        <div><small>Residents</small><b>{fmtPeople(residents)}</b></div>
         <div><small>Jobs</small><b>{fmtPeople(st.jobs)}</b></div>
         <div><small>Open land</small><b>{st.emptyTiles} plots</b></div>
       </div>
       <dl className="ctx-facts">
         <dt>Mostly</dt><dd>{top.map(([k, n]) => `${n} ${KIND_NAMES[k as Kind][n === 1 ? 0 : 1]}`).join(', ')}</dd>
+        <dt>Work</dt><dd>{workers > 0 ? `${num(st.jobs / workers, 1)} jobs per local worker` : 'No residents; a pure job centre'}</dd>
         <dt>Green cover</dt><dd>{st.greenTiles} park tiles</dd>
         {sites > 0 && (<><dt>Projects</dt><dd>{sites} under construction</dd></>)}
       </dl>

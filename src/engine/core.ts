@@ -19,6 +19,7 @@ import { ACHIEVEMENTS, NEWS_TEMPLATES, OBJECTIVE_TEMPLATES, STAGE_OBJECTIVES } f
 import { nextRandom } from './rng';
 import { BASE_STATS } from './map';
 import { advanceConstruction, mapModifier } from './build';
+import { cityWeek, initialCity } from './city';
 import { FACILITY_WEEKS } from '../config/build';
 import { SOURCES, type PhaseSnap, type BuildingId, type Cost, type Deltas, type EndingId, type GameState, type Modifier, type NewsKind, type Source } from './types';
 
@@ -78,6 +79,7 @@ export function newGame(seed = Date.now() % 2147483647, now = Date.now()): GameS
     cityEdits: { placed: [], demolished: [], roads: [], zones: {}, nextUid: 1 },
     mapVersion: 0,
     mapStats: { ...BASE_STATS },
+    city: initialCity(BASE_STATS),
   };
   // settle the atmosphere to day-1 steady state
   const target = steadyConc(s, false);
@@ -786,6 +788,7 @@ export function step(s: GameState, opts: { offline?: boolean } = {}) {
 function endOfWeek(s: GameState, offline: boolean) {
   const prevWeek = weekOf(s) - 1;
   evaluateObjectives(s, true);
+  cityWeek(s);
   s.weekly.push({ week: prevWeek, aqi: actualAqi(s), official: officialAqi(s), baseline: baselineAqi(s), trust: Math.round(s.res.trust), credibility: Math.round(s.res.credibility) });
   if (prevWeek % WEEKS_PER_PHASE === 0 && !s.sandbox) closePhase(s);
 

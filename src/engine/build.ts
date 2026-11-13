@@ -11,6 +11,7 @@ import {
   type CityMap, type MapBuilding,
 } from './map';
 import type { Deltas, GameState, Modifier, Placeable, Zone } from './types';
+import { CITY_SIM } from '../config/city';
 
 /* ------------------------------------------------------------------ map access */
 
@@ -121,6 +122,7 @@ export function demolitionInfo(s: GameState, m: CityMap, id: number): Demolition
   if (b.kind === 'monument' || b.kind === 'busterminal') return { allowed: false, reason: 'This is protected city infrastructure.', ...none };
   if (b.progress) {
     const p = s.cityEdits.placed.find((q) => q.uid === b.placedUid)!;
+    if (p.organic) return { allowed: true, cancel: true, cost: 0, refund: 0, deltas: { pressure: 2 }, note: 'Revoke a private developer’s permit. The builders’ lobby takes note.' };
     return { allowed: true, cancel: true, cost: 0, refund: Math.round(p.cost * CANCEL_REFUND), deltas: {}, note: 'Cancel construction and recover part of the money.' };
   }
   const d = DEMOLITION[b.kind];
@@ -142,6 +144,7 @@ export function demolish(s: GameState, id: number): ActionResult {
   const label = KIND_INFO[b.kind].label;
   if (info.cancel) {
     s.res.budget += info.refund;
+    applyDeltas(s, info.deltas);
     removeBuilding(s, b);
     refreshMap(s);
     return { ok: true, msg: `Construction cancelled · ₹${info.refund.toLocaleString('en-IN')} recovered` };
@@ -254,25 +257,27 @@ export function advanceConstruction(s: GameState) {
 
 /** How the current map (vs the original city) shifts emissions, revenue, trust and upkeep. */
 export function mapModifier(s: GameState): Modifier {
-  const st = s.mapStats, b = BASE_STATS;
-  const activity = (st.population + st.jobs) / (b.population + b.jobs);
+  const st = s.mapStats, b = BASE_STATS, c = s.city;
+  const basePop = b.population * CITY_SIM.startOccupancy;
   const parkDelta = st.parkTiles - b.parkTiles;
+  const unemploymentHit = Math.max(0, c.unemployment - CITY_SIM.unemploymentTolerance) * CITY_SIM.unemploymentTrust;
+  const crowdHit = Math.max(0, c.overcrowding - CITY_SIM.overcrowdingTolerance) * CITY_SIM.overcrowdingTrust;
   const greenControl = clamp(0.0025 * parkDelta, 0, 0.12);
   return {
     emissionMult: {
       industry: 0.4 + 0.6 * (st.industryLoad / b.industryLoad),
-      transport: (0.6 + 0.4 * activity) * (1 + 0.004 * (st.parkingTiles - b.parkingTiles)),
-      dust: Math.max(0.7, 1 + 0.025 * (st.constructionSites - b.constructionSites)),
+      transport: c.traffic.transportMult,
+      dust: Math.max(0.7, 1 + 0.025 * (st.constructionSites - b.constructionSites)) * (1 + c.overcrowding),
+      waste: 1 + c.overcrowding * 1.5,
     },
     control: {
-      transport: clamp(0.006 * (st.busStops - b.busStops) * (s.buildings.bus > 0 ? 1.5 : 1), 0, 0.12),
       dust: greenControl,
       other: greenControl,
     },
     incomePerWeek:
-      0.08 * (st.population - b.population) + 0.1 * (st.jobs - b.jobs) + 20 * (st.commercialTiles - b.commercialTiles) +
+      0.08 * (c.population - basePop) + 0.1 * (st.jobs - b.jobs) + 20 * (st.commercialTiles - b.commercialTiles) +
       40 * (st.industryLoad - b.industryLoad) + 25 * (st.parkingTiles - b.parkingTiles),
-    trustPerWeek: 0.5 * (st.hospitals - b.hospitals) + 0.25 * (st.schools - b.schools) + 0.004 * parkDelta,
+    trustPerWeek: 0.5 * (st.hospitals - b.hospitals) + 0.25 * (st.schools - b.schools) + 0.004 * parkDelta - unemploymentHit - crowdHit,
     participationPerWeek: 0.1 * (st.schools - b.schools),
     upkeepPerWeek: st.upkeep,
   };

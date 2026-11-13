@@ -7,6 +7,8 @@ import {
 import { checkPlacement, checkRoad, demolitionInfo, roadPath, zoneTiles } from '../engine/build';
 import { PLACEABLE_MAP, ZONE_INFO } from '../config/build';
 import type { Tool } from '../state/store';
+import { BASE_TRAFFIC } from '../engine/city';
+import { KIND_INFO } from '../engine/map';
 import type { BuildingId, GameState } from '../engine/types';
 import { cityControls } from './controls';
 
@@ -67,7 +69,7 @@ function palette(haze: number) {
   };
 }
 
-interface Vehicle { obj: Phaser.GameObjects.Container; fx: number; fy: number; tx: number; ty: number; t: number; speed: number }
+interface Vehicle { obj: Phaser.GameObjects.Container; fx: number; fy: number; tx: number; ty: number; t: number; speed: number; commuter: boolean; ped: boolean }
 
 export class CityScene extends Phaser.Scene {
   private bridge!: CityBridge;
@@ -91,6 +93,10 @@ export class CityScene extends Phaser.Scene {
   private rain!: Phaser.GameObjects.Particles.ParticleEmitter;
   private vehicles: Vehicle[] = [];
   private roadTiles: [number, number][] = [];
+  private streetTiles: [number, number][] = [];
+  private jobsAt = { x: 0, y: 0 };
+  private homesAt = { x: 0, y: 0 };
+  private peds: Vehicle[] = [];
   private bucket = -1;
   private levelsKey = '';
   private hazeT = 0;
@@ -250,7 +256,23 @@ export class CityScene extends Phaser.Scene {
 
   private collectRoads() {
     this.roadTiles = [];
-    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (isRoad(this.map.tiles[idx(x, y)])) this.roadTiles.push([x, y]);
+    this.streetTiles = [];
+    for (let y = 0; y < ROWS; y++) for (let x = 0; x < COLS; x++) {
+      const t = this.map.tiles[idx(x, y)];
+      if (isRoad(t)) this.roadTiles.push([x, y]);
+      if (t === 'street') this.streetTiles.push([x, y]);
+    }
+    // where people live and where they work: commuters flow between the two
+    let jx = 0, jy = 0, jw = 0, hx = 0, hy = 0, hw = 0;
+    for (const b of this.map.buildings) {
+      if (b.removed || b.progress) continue;
+      const k = KIND_INFO[b.kind];
+      const cx = b.x + b.w / 2, cy = b.y + b.h / 2;
+      jx += cx * k.jobs; jy += cy * k.jobs; jw += k.jobs;
+      hx += cx * k.residents; hy += cy * k.residents; hw += k.residents;
+    }
+    this.jobsAt = { x: jx / Math.max(1, jw), y: jy / Math.max(1, jw) };
+    this.homesAt = { x: hx / Math.max(1, hw), y: hy / Math.max(1, hw) };
   }
 
   /** Tints land by zone while a building tool is active. */
@@ -769,9 +791,10 @@ export class CityScene extends Phaser.Scene {
     const nb = roadNeighbours(this.map, x, y);
     if (!nb.length) return;
     const [tx, ty] = nb[Math.floor(Math.random() * nb.length)];
-    const busShare = 0.06 + s.buildings.bus * 0.08;
+    const busShare = 0.03 + s.buildings.bus * 0.07;
+    const dtcShare = 0.02 + s.city.traffic.ptShare * 0.1;
     const r = Math.random();
-    const kind = r < busShare ? 'ebus' : r < busShare + 0.07 ? 'dtc' : r < 0.42 ? 'car' : r < 0.62 ? 'auto' : r < 0.84 ? 'scooter' : 'truck';
+    const kind = r < busShare ? 'ebus' : r < busShare + dtcShare ? 'dtc' : r < 0.42 ? 'car' : r < 0.62 ? 'auto' : r < 0.84 ? 'scooter' : 'truck';
     const len = { ebus: 26, dtc: 26, car: 14, auto: 10, scooter: 7, truck: 22 }[kind];
     const wid = { ebus: 10, dtc: 10, car: 8, auto: 8, scooter: 4, truck: 10 }[kind];
     const color = { ebus: 0x22a35a, dtc: 0xd94b3d, car: [0xffffff, 0x2f6fd6, 0xe0483e, 0x334155, 0xf4c84a][Math.floor(Math.random() * 5)], auto: 0x2f9e44, scooter: [0x111827, 0xef4444, 0x3b82f6][Math.floor(Math.random() * 3)], truck: 0xe8a33d }[kind];
@@ -784,34 +807,52 @@ export class CityScene extends Phaser.Scene {
     if (kind === 'car') v.add(this.add.rectangle(2, 0, len * 0.4, wid - 3, 0x1e293b, 0.5));
     const speed = (kind === 'scooter' ? 2.4 : kind === 'auto' ? 1.9 : kind === 'car' ? 2.1 : 1.4) * (0.85 + Math.random() * 0.3);
     this.traffic.add(v);
-    const veh: Vehicle = { obj: v, fx: x, fy: y, tx, ty, t: anywhere ? Math.random() : 0, speed };
+    const veh: Vehicle = { obj: v, fx: x, fy: y, tx, ty, t: anywhere ? Math.random() : 0, speed, commuter: Math.random() < 0.55, ped: false };
     this.placeVehicle(veh);
     this.vehicles.push(veh);
   }
 
   private placeVehicle(v: Vehicle) {
     const dx = v.tx - v.fx, dy = v.ty - v.fy;
-    const lane = 7; // India drives on the left
+    const lane = v.ped ? 15 : 7; // India drives on the left; pedestrians keep to the pavement
     v.obj.setPosition((lerp(v.fx, v.tx, v.t) + 0.5) * CELL + dy * lane, (lerp(v.fy, v.ty, v.t) + 0.5) * CELL - dx * lane);
-    v.obj.setAngle(dx !== 0 ? (dx > 0 ? 0 : 180) : dy > 0 ? 90 : 270);
+    if (!v.ped) v.obj.setAngle(dx !== 0 ? (dx > 0 ? 0 : 180) : dy > 0 ? 90 : 270);
   }
 
-  private stepVehicle(v: Vehicle, dt: number) {
+  private stepVehicle(v: Vehicle, dt: number, goal: { x: number; y: number } | null) {
     v.t += v.speed * dt;
     while (v.t >= 1) {
       v.t -= 1;
-      const opts = roadNeighbours(this.map, v.tx, v.ty).filter(([nx, ny]) => !(nx === v.fx && ny === v.fy));
+      let opts = roadNeighbours(this.map, v.tx, v.ty).filter(([nx, ny]) => !(nx === v.fx && ny === v.fy));
+      if (v.ped) opts = opts.filter(([nx, ny]) => this.map.tiles[idx(nx, ny)] === 'street');
       const dx = v.tx - v.fx, dy = v.ty - v.fy;
       const straight = opts.find(([nx, ny]) => nx - v.tx === dx && ny - v.ty === dy);
       let next: [number, number];
       if (!opts.length) next = [v.fx, v.fy];
-      else if (straight && Math.random() < 0.65) next = straight;
+      else if (goal && v.commuter && Math.random() < 0.7) {
+        // head toward offices in the morning, toward homes in the evening
+        next = opts.reduce((best, o) => (Math.hypot(o[0] - goal.x, o[1] - goal.y) < Math.hypot(best[0] - goal.x, best[1] - goal.y) ? o : best));
+      } else if (straight && Math.random() < 0.65) next = straight;
       else next = opts[Math.floor(Math.random() * opts.length)];
       v.fx = v.tx;
       v.fy = v.ty;
       [v.tx, v.ty] = next;
     }
     this.placeVehicle(v);
+  }
+
+  private spawnPed() {
+    const [x, y] = this.streetTiles[Math.floor(Math.random() * this.streetTiles.length)];
+    const nb = roadNeighbours(this.map, x, y).filter(([nx, ny]) => this.map.tiles[idx(nx, ny)] === 'street');
+    if (!nb.length) return;
+    const [tx, ty] = nb[Math.floor(Math.random() * nb.length)];
+    const c = this.add.container(0, 0);
+    const cols = [0xf97316, 0x0ea5e9, 0xe11d48, 0xfacc15, 0x8b5cf6, 0x10b981, 0xffffff];
+    c.add(this.add.circle(0, 0, 3, cols[Math.floor(Math.random() * cols.length)]).setStrokeStyle(1, 0x000000, 0.25));
+    this.traffic.add(c);
+    const p: Vehicle = { obj: c, fx: x, fy: y, tx, ty, t: Math.random(), speed: 0.35 + Math.random() * 0.25, commuter: Math.random() < 0.5, ped: true };
+    this.placeVehicle(p);
+    this.peds.push(p);
   }
 
   private buildTrains() {
@@ -885,9 +926,17 @@ export class CityScene extends Phaser.Scene {
       const x = lerp(l.x1, l.x2, tr.t) * CELL + 12, y = lerp(l.y1, l.y2, tr.t) * CELL + 12;
       tr.obj.setPosition(l.y1 === l.y2 ? x - 45 : x, l.y1 === l.y2 ? y : y - 45);
     }
-    const target = Math.max(45, 80 - s.buildings.bus * 8);
-    if (this.vehicles.length < target && Math.random() < dt * 6) this.spawnVehicle(s);
+    // vehicle numbers follow private trips; congestion slows everyone down
+    const tr = s.city.traffic;
+    const target = Phaser.Math.Clamp(Math.round(75 * (tr.privateTrips / BASE_TRAFFIC.privateTrips)), 25, 150);
+    if (this.vehicles.length < target && Math.random() < dt * 8) this.spawnVehicle(s);
     if (this.vehicles.length > target + 4) this.vehicles.pop()?.obj.destroy();
-    for (const v of this.vehicles) this.stepVehicle(v, dt);
+    const flow = 1 / (0.55 + 0.45 * tr.congestion);
+    const goal = tod > 0.08 && tod < 0.4 ? this.jobsAt : tod > 0.55 && tod < 0.85 ? this.homesAt : null;
+    for (const v of this.vehicles) this.stepVehicle(v, dt * flow, goal);
+    const pedTarget = Phaser.Math.Clamp(Math.round(s.city.population / 2500), 15, 70);
+    if (this.peds.length < pedTarget && this.streetTiles.length) this.spawnPed();
+    if (this.peds.length > pedTarget + 3) this.peds.pop()?.obj.destroy();
+    for (const p of this.peds) this.stepVehicle(p, dt, goal);
   }
 }
